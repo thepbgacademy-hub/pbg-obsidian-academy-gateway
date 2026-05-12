@@ -10,7 +10,7 @@ const POC_ASSIGNMENT_COACH_RUN_ID = "poc-assignment-coach-run";
 const POC_STUDENT_ID = "00000000-0000-4000-8000-000000000101";
 const POC_USERNAME = "pbg_test_student";
 const POC_PASSWORD = "pbg-test-password";
-const POC_REFRESH_TOKEN = "poc-refresh-token";
+export const POC_REFRESH_TOKEN = "poc-refresh-token";
 const POC_ACCESS_TOKEN = "short-lived-token";
 
 export type LoginRequest = {
@@ -66,7 +66,7 @@ function createSeededPocAuthService(): AuthService {
 
       return {
         accessToken: POC_ACCESS_TOKEN,
-        refreshToken: "device-refresh-token",
+        refreshToken: POC_REFRESH_TOKEN,
         student: {
           studentId: POC_STUDENT_ID,
           displayName: "PBG Test Student",

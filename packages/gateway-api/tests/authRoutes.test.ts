@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { API_ROUTES } from "@pbg/shared/contracts";
-import { buildApp, type AuthService } from "../src/app.js";
+import { buildApp, POC_REFRESH_TOKEN, type AuthService } from "../src/app.js";
 
 describe("auth routes", () => {
   it("logs in through an injected auth service", async () => {
@@ -83,14 +83,30 @@ describe("auth routes", () => {
     await app.close();
   });
 
-  it("refreshes the POC access token for the seeded refresh token", async () => {
+  it("refreshes using the refresh token returned by seeded login", async () => {
     const app = buildApp();
+
+    const loginResponse = await app.inject({
+      method: "POST",
+      url: API_ROUTES.authLogin,
+      payload: {
+        username: "pbg_test_student",
+        password: "pbg-test-password",
+        vaultId: "sha256-vault-id",
+        deviceFingerprint: "sha256-device-fingerprint",
+        pluginVersion: "0.1.0"
+      }
+    });
+    const loginBody = loginResponse.json<{ refreshToken: string }>();
+
+    expect(loginResponse.statusCode).toBe(200);
+    expect(loginBody.refreshToken).toBe(POC_REFRESH_TOKEN);
 
     const response = await app.inject({
       method: "POST",
       url: API_ROUTES.authRefresh,
       payload: {
-        refreshToken: "poc-refresh-token"
+        refreshToken: loginBody.refreshToken
       }
     });
 
@@ -128,7 +144,7 @@ describe("auth routes", () => {
       method: "POST",
       url: API_ROUTES.authLogout,
       payload: {
-        refreshToken: "poc-refresh-token"
+        refreshToken: POC_REFRESH_TOKEN
       }
     });
 

@@ -5,7 +5,7 @@ import type {
   AssignmentCoachRunRequest,
   AssignmentCoachRunResponse
 } from "@pbg/shared/workflowContracts";
-import { buildApp } from "../src/app.js";
+import { buildApp, POC_REFRESH_TOKEN } from "../src/app.js";
 
 describe("gateway API routes", () => {
   it("accepts the seeded POC credentials", async () => {
@@ -26,7 +26,7 @@ describe("gateway API routes", () => {
     expect(response.statusCode).toBe(200);
     expect(response.json()).toEqual({
       accessToken: "short-lived-token",
-      refreshToken: "device-refresh-token",
+      refreshToken: POC_REFRESH_TOKEN,
       student: {
         studentId: "00000000-0000-4000-8000-000000000101",
         displayName: "PBG Test Student",
