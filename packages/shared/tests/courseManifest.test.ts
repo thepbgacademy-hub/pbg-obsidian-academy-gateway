@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { createHash } from "node:crypto";
 import { createPocCourseManifest } from "../src/courseManifest.js";
 
 describe("course manifest", () => {
@@ -10,5 +11,16 @@ describe("course manifest", () => {
       "PBG/Assignments/connect-first-workflow.md"
     );
     expect(manifest.files.every((file) => file.path.startsWith("PBG/"))).toBe(true);
+  });
+
+  it("uses deterministic SHA-256 hashes for each file body", () => {
+    const manifest = createPocCourseManifest();
+
+    for (const file of manifest.files) {
+      const bodyHash = createHash("sha256").update(file.body).digest("hex");
+
+      expect(file.sha256).toMatch(/^[0-9a-f]{64}$/);
+      expect(file.sha256).toBe(bodyHash);
+    }
   });
 });

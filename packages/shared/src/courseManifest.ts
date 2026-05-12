@@ -17,7 +17,7 @@ export function createPocCourseManifest(): CourseManifest {
     files: [
       {
         path: "PBG/Courses/pbg-academy-foundations/orientation/telegram-enrollment-to-academy.md",
-        sha256: "poc-lesson-hash",
+        sha256: "9c26a617d6e35d05ac0e6ea58766ed1f46b6b5a8a30a6ffc6bc7369a5b7b8191",
         kind: "lesson",
         title: "Telegram Enrollment to Academy",
         body:
@@ -31,7 +31,7 @@ export function createPocCourseManifest(): CourseManifest {
       },
       {
         path: "PBG/Assignments/connect-first-workflow.md",
-        sha256: "poc-assignment-hash",
+        sha256: "9b6bdab9db81413ded1ff465223278fc5ea2a87c45d5f253f8ac04e6e710ef9b",
         kind: "assignment",
         title: "Connect First Workflow",
         body:

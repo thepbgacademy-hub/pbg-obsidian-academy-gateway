@@ -6,24 +6,69 @@ paths:
   /api/auth/login:
     post:
       summary: Log in and register the PBG Vault device
+      operationId: authLogin
       responses:
         "200":
           description: Login accepted
+  /api/auth/refresh:
+    post:
+      summary: Refresh the current academy gateway session
+      operationId: authRefresh
+      responses:
+        "200":
+          description: Session refreshed
+  /api/auth/logout:
+    post:
+      summary: Log out the current academy gateway session
+      operationId: authLogout
+      responses:
+        "200":
+          description: Session ended
+  /api/devices/register:
+    post:
+      summary: Register or rotate the local PBG Vault device
+      operationId: deviceRegister
+      responses:
+        "200":
+          description: Device registered
   /api/dashboard/me:
     get:
       summary: Return student standing, credits, workflows, and manifest version
+      operationId: dashboardMe
       responses:
         "200":
           description: Dashboard status
   /api/courses/manifest:
     get:
       summary: Return entitled local-first course files
+      operationId: courseManifest
       responses:
         "200":
           description: Course manifest
+  /api/workflows/assignment-coach/preview:
+    post:
+      summary: Preview Assignment Coach output before an explicit run
+      operationId: assignmentCoachPreview
+      responses:
+        "200":
+          description: Workflow preview
   /api/workflows/assignment-coach/run:
     post:
       summary: Run Assignment Coach after explicit student action
+      operationId: assignmentCoachRun
       responses:
         "200":
           description: Workflow result
+  /api/workflows/runs/{runId}:
+    get:
+      summary: Return a workflow run by ID
+      operationId: workflowRun
+      parameters:
+        - name: runId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Workflow run status

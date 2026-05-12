@@ -3,5 +3,29 @@
   "version": "0.1.0",
   "type": "module",
   "private": true,
-  "main": "src/contracts.ts"
+  "main": "./src/contracts.ts",
+  "types": "./src/contracts.ts",
+  "exports": {
+    ".": {
+      "types": "./src/contracts.ts",
+      "default": "./src/contracts.ts"
+    },
+    "./contracts": {
+      "types": "./src/contracts.ts",
+      "default": "./src/contracts.ts"
+    },
+    "./courseManifest": {
+      "types": "./src/courseManifest.ts",
+      "default": "./src/courseManifest.ts"
+    },
+    "./src/contracts": {
+      "types": "./src/contracts.ts",
+      "default": "./src/contracts.ts"
+    },
+    "./src/courseManifest": {
+      "types": "./src/courseManifest.ts",
+      "default": "./src/courseManifest.ts"
+    },
+    "./package.json": "./package.json"
+  }
 }
