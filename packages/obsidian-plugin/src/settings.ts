@@ -1,0 +1,30 @@
+export interface PbgAcademyGatewaySettings {
+  gatewayBaseUrl: string;
+}
+
+export const DEFAULT_PLUGIN_SETTINGS: PbgAcademyGatewaySettings = {
+  gatewayBaseUrl: "http://localhost:8787"
+};
+
+export function normalizeGatewayBaseUrl(value: unknown): string {
+  if (typeof value !== "string") {
+    return DEFAULT_PLUGIN_SETTINGS.gatewayBaseUrl;
+  }
+
+  const trimmed = value.trim().replace(/\/+$/, "");
+  if (!trimmed) {
+    return DEFAULT_PLUGIN_SETTINGS.gatewayBaseUrl;
+  }
+
+  try {
+    return new URL(trimmed).toString().replace(/\/+$/, "");
+  } catch {
+    return DEFAULT_PLUGIN_SETTINGS.gatewayBaseUrl;
+  }
+}
+
+export function normalizePluginSettings(value: Partial<PbgAcademyGatewaySettings> | null | undefined): PbgAcademyGatewaySettings {
+  return {
+    gatewayBaseUrl: normalizeGatewayBaseUrl(value?.gatewayBaseUrl)
+  };
+}

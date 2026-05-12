@@ -3,12 +3,17 @@ import { getCourseManifest } from "./apiClient.js";
 import { getManifestWritePlan } from "./courseSync.js";
 import { PbgDashboardView, VIEW_TYPE_PBG_DASHBOARD } from "./dashboardView.js";
 import { PBG_REQUIRED_PATHS } from "./onboarding.js";
-
-const DEFAULT_GATEWAY_BASE_URL = "http://localhost:8787";
+import { normalizePluginSettings, type PbgAcademyGatewaySettings } from "./settings.js";
+import { PbgAcademyGatewaySettingTab } from "./settingsTab.js";
 
 export default class PbgAcademyGatewayPlugin extends Plugin {
+  settings: PbgAcademyGatewaySettings = normalizePluginSettings(undefined);
+
   async onload(): Promise<void> {
+    await this.loadSettings();
+
     this.registerView(VIEW_TYPE_PBG_DASHBOARD, (leaf) => new PbgDashboardView(leaf));
+    this.addSettingTab(new PbgAcademyGatewaySettingTab(this.app, this));
 
     this.addCommand({
       id: "open-pbg-academy-dashboard",
@@ -30,7 +35,7 @@ export default class PbgAcademyGatewayPlugin extends Plugin {
 
   private async syncCourseManifest(): Promise<void> {
     try {
-      const manifest = await getCourseManifest(DEFAULT_GATEWAY_BASE_URL);
+      const manifest = await getCourseManifest(this.settings.gatewayBaseUrl);
       const writePlan = getManifestWritePlan(manifest);
       let createdCount = 0;
       let skippedCount = 0;
@@ -89,5 +94,13 @@ export default class PbgAcademyGatewayPlugin extends Plugin {
     const leaf = this.app.workspace.getLeaf(true);
     await leaf.setViewState({ type: VIEW_TYPE_PBG_DASHBOARD, active: true });
     this.app.workspace.revealLeaf(leaf);
+  }
+
+  private async loadSettings(): Promise<void> {
+    this.settings = normalizePluginSettings(await this.loadData());
+  }
+
+  async saveSettings(): Promise<void> {
+    await this.saveData(this.settings);
   }
 }
