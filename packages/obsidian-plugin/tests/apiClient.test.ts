@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { AssignmentCoachRunRequest } from "@pbg/shared/workflowContracts";
 import { PbgGatewayApiClient } from "../src/apiClient.js";
 
 describe("PbgGatewayApiClient", () => {
@@ -66,5 +67,74 @@ describe("PbgGatewayApiClient", () => {
         pluginVersion: "0.1.0"
       })
     );
+  });
+
+  it("posts assignment coach payloads to the workflow run route", async () => {
+    const requests: Array<{ url: string; init?: RequestInit }> = [];
+    const payload: AssignmentCoachRunRequest = {
+      assignmentPath: "PBG/Assignments/connect-first-workflow.md",
+      assignmentTitle: "Connect First Workflow",
+      assignmentBody: "# Connect First Workflow\n",
+      relatedContext: [],
+      localMetadata: {
+        taskCount: 0,
+        completedTaskCount: 0,
+        tags: []
+      }
+    };
+    const client = new PbgGatewayApiClient("http://localhost:8787", async (input, init) => {
+      requests.push({ url: input.toString(), init });
+      return new Response(
+        JSON.stringify({
+          runId: "run-001",
+          status: "completed",
+          creditCost: 1,
+          result: {
+            title: "Assignment Coach Result",
+            summary: "Ready",
+            nextSteps: [],
+            markdown: "# Result\n"
+          }
+        })
+      );
+    });
+
+    const result = await client.runAssignmentCoach(payload);
+
+    expect(result.runId).toBe("run-001");
+    expect(requests).toHaveLength(1);
+    expect(requests[0]).toMatchObject({
+      url: "http://localhost:8787/api/workflows/assignment-coach/run",
+      init: {
+        method: "POST",
+        headers: {
+          "content-type": "application/json"
+        }
+      }
+    });
+    expect(requests[0]?.init?.body).toBe(JSON.stringify(payload));
+  });
+
+  it("includes workflow response details for non-ok assignment coach errors", async () => {
+    const client = new PbgGatewayApiClient("http://localhost:8787", async () => {
+      return new Response("credits exhausted", {
+        status: 402,
+        statusText: "Payment Required"
+      });
+    });
+
+    await expect(
+      client.runAssignmentCoach({
+        assignmentPath: "PBG/Assignments/connect-first-workflow.md",
+        assignmentTitle: "Connect First Workflow",
+        assignmentBody: "# Connect First Workflow\n",
+        relatedContext: [],
+        localMetadata: {
+          taskCount: 0,
+          completedTaskCount: 0,
+          tags: []
+        }
+      })
+    ).rejects.toThrow("Gateway request failed (402 Payment Required): credits exhausted");
   });
 });

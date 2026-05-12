@@ -1,10 +1,12 @@
 import { Notice, Plugin, TFolder, normalizePath } from "obsidian";
-import { getCourseManifest } from "./apiClient.js";
+import { PbgGatewayApiClient, getCourseManifest } from "./apiClient.js";
+import { createContextPreviewMessage } from "./contextPreview.js";
 import { getManifestWritePlan } from "./courseSync.js";
 import { PbgDashboardView, VIEW_TYPE_PBG_DASHBOARD } from "./dashboardView.js";
 import { PBG_REQUIRED_PATHS } from "./onboarding.js";
 import { normalizePluginSettings, type PbgAcademyGatewaySettings } from "./settings.js";
 import { PbgAcademyGatewaySettingTab } from "./settingsTab.js";
+import { runAssignmentCoachForFile } from "./workflowActions.js";
 
 export default class PbgAcademyGatewayPlugin extends Plugin {
   settings: PbgAcademyGatewaySettings = normalizePluginSettings(undefined);
@@ -31,6 +33,39 @@ export default class PbgAcademyGatewayPlugin extends Plugin {
         await this.syncCourseManifest();
       }
     });
+
+    this.addCommand({
+      id: "run-assignment-coach-on-active-note",
+      name: "Run Assignment Coach on Active Note",
+      callback: async () => {
+        await this.runAssignmentCoachOnActiveNote();
+      }
+    });
+  }
+
+  private async runAssignmentCoachOnActiveNote(): Promise<void> {
+    const file = this.app.workspace.getActiveFile();
+
+    if (!file) {
+      new Notice("Open an assignment note before running Assignment Coach.");
+      return;
+    }
+
+    try {
+      new Notice(createContextPreviewMessage(1, 0));
+      const client = new PbgGatewayApiClient(this.settings.gatewayBaseUrl);
+      const resultPath = await runAssignmentCoachForFile({
+        file,
+        vault: this.app.vault,
+        client
+      });
+
+      new Notice(`Assignment Coach result saved to ${resultPath}`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      new Notice(`Assignment Coach failed: ${message}`);
+      console.error("Assignment Coach failed", error);
+    }
   }
 
   private async syncCourseManifest(): Promise<void> {

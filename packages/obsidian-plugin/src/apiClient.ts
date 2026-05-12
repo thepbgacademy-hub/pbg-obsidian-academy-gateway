@@ -1,5 +1,9 @@
 import type { CourseManifest } from "@pbg/shared/courseManifest";
 import { API_ROUTES } from "@pbg/shared/contracts";
+import type {
+  AssignmentCoachRunRequest,
+  AssignmentCoachRunResponse
+} from "@pbg/shared/workflowContracts";
 
 export interface LoginRequest {
   username: string;
@@ -45,6 +49,16 @@ export class PbgGatewayApiClient {
         "content-type": "application/json"
       },
       body: JSON.stringify(input)
+    });
+  }
+
+  async runAssignmentCoach(payload: AssignmentCoachRunRequest): Promise<AssignmentCoachRunResponse> {
+    return this.requestJson<AssignmentCoachRunResponse>(API_ROUTES.assignmentCoachRun, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json"
+      },
+      body: JSON.stringify(payload)
     });
   }
 
