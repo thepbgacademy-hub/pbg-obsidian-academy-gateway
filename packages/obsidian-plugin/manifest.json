@@ -1,0 +1,9 @@
+{
+  "id": "pbg-academy-gateway",
+  "name": "PBG Academy Gateway",
+  "version": "0.1.0",
+  "minAppVersion": "1.5.0",
+  "description": "Local-first PBG Academy dashboard and workflow gateway.",
+  "author": "PBG Academy",
+  "isDesktopOnly": true
+}
