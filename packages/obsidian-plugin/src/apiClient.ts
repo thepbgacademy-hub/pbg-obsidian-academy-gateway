@@ -1,6 +1,7 @@
 import type { CourseManifest } from "@pbg/shared/courseManifest";
 import { API_ROUTES } from "@pbg/shared/contracts";
 import type {
+  AssignmentCoachPreviewResponse,
   AssignmentCoachRunRequest,
   AssignmentCoachRunResponse
 } from "@pbg/shared/workflowContracts";
@@ -35,7 +36,8 @@ export type GatewayFetch = typeof fetch;
 export class PbgGatewayApiClient {
   constructor(
     private readonly gatewayBaseUrl: string,
-    private readonly fetchImpl: GatewayFetch = fetch
+    private readonly fetchImpl: GatewayFetch = fetch,
+    private accessToken?: string
   ) {}
 
   async getCourseManifest(): Promise<CourseManifest> {
@@ -43,12 +45,25 @@ export class PbgGatewayApiClient {
   }
 
   async login(input: LoginRequest): Promise<LoginResponse> {
-    return this.requestJson<LoginResponse>(API_ROUTES.authLogin, {
+    const result = await this.requestJson<LoginResponse>(API_ROUTES.authLogin, {
       method: "POST",
       headers: {
         "content-type": "application/json"
       },
       body: JSON.stringify(input)
+    });
+
+    this.accessToken = result.accessToken;
+    return result;
+  }
+
+  async previewAssignmentCoach(payload: AssignmentCoachRunRequest): Promise<AssignmentCoachPreviewResponse> {
+    return this.requestJson<AssignmentCoachPreviewResponse>(API_ROUTES.assignmentCoachPreview, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json"
+      },
+      body: JSON.stringify(payload)
     });
   }
 
@@ -62,8 +77,14 @@ export class PbgGatewayApiClient {
     });
   }
 
+  async getWorkflowRun(runId: string): Promise<AssignmentCoachRunResponse> {
+    const path = API_ROUTES.workflowRun.replace(":runId", encodeURIComponent(runId));
+    return this.requestJson<AssignmentCoachRunResponse>(path);
+  }
+
   private async requestJson<T>(path: string, init?: RequestInit): Promise<T> {
-    const response = await this.fetchImpl(new URL(path, this.gatewayBaseUrl), init);
+    const requestInit = this.withAuthorization(init);
+    const response = await this.fetchImpl(new URL(path, this.gatewayBaseUrl), requestInit);
 
     if (!response.ok) {
       let details = "";
@@ -80,8 +101,38 @@ export class PbgGatewayApiClient {
 
     return (await response.json()) as T;
   }
+
+  private withAuthorization(init?: RequestInit): RequestInit | undefined {
+    if (!this.accessToken) {
+      return init;
+    }
+
+    return {
+      ...init,
+      headers: {
+        ...headersToObject(init?.headers),
+        authorization: `Bearer ${this.accessToken}`
+      }
+    };
+  }
 }
 
-export async function getCourseManifest(gatewayBaseUrl: string): Promise<CourseManifest> {
-  return new PbgGatewayApiClient(gatewayBaseUrl).getCourseManifest();
+function headersToObject(headers: HeadersInit | undefined): Record<string, string> {
+  if (!headers) {
+    return {};
+  }
+
+  if (headers instanceof Headers) {
+    return Object.fromEntries(headers.entries());
+  }
+
+  if (Array.isArray(headers)) {
+    return Object.fromEntries(headers);
+  }
+
+  return headers;
+}
+
+export async function getCourseManifest(gatewayBaseUrl: string, accessToken?: string): Promise<CourseManifest> {
+  return new PbgGatewayApiClient(gatewayBaseUrl, fetch, accessToken).getCourseManifest();
 }

@@ -27,3 +27,13 @@ export interface AssignmentCoachRunResponse {
     markdown: string;
   };
 }
+
+export interface AssignmentCoachPreviewResponse {
+  status: "preview";
+  assignmentPath: string;
+  assignmentTitle: string;
+  summary: string;
+  contextCount: number;
+  taskCount: number;
+  completedTaskCount: number;
+}

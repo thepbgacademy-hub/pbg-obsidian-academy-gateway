@@ -57,7 +57,7 @@ export default class PbgAcademyGatewayPlugin extends Plugin {
 
     try {
       new Notice(createContextPreviewMessage(1, 0));
-      const client = new PbgGatewayApiClient(this.settings.gatewayBaseUrl);
+      const client = new PbgGatewayApiClient(this.settings.gatewayBaseUrl, fetch, this.settings.accessToken);
       const resultPath = await runAssignmentCoachForFile({
         file,
         vault: this.app.vault,
@@ -74,7 +74,7 @@ export default class PbgAcademyGatewayPlugin extends Plugin {
 
   private async syncCourseManifest(): Promise<void> {
     try {
-      const manifest = await getCourseManifest(this.settings.gatewayBaseUrl);
+      const manifest = await getCourseManifest(this.settings.gatewayBaseUrl, this.settings.accessToken);
       const writePlan = getManifestWritePlan(manifest);
       let createdCount = 0;
       let skippedCount = 0;

@@ -15,12 +15,14 @@ See the design spec:
 3. Start the gateway API with `npm --workspace @pbg/gateway-api run dev`.
 4. If port `8787` is already in use, start the gateway on another local port and update the plugin setting for the gateway base URL.
 5. Build the plugin with `npm --workspace pbg-academy-gateway run build`.
-6. Install the plugin with `.\scripts\install-plugin.ps1`.
+6. Install the plugin with `.\scripts\install-plugin.ps1 -VaultPath "E:\Obsidian\PBG Plug in" -ConfirmInstall -Confirm:$false`.
 7. Open `E:\Obsidian\PBG Plug in` in Obsidian and enable PBG Academy Gateway.
 8. Run `Open PBG Academy Dashboard`, then use `Sync PBG Course Manifest` and `Run Assignment Coach on Active Note` from the command palette.
+
+The install script defaults to `E:\Obsidian\PBG Plug in`, validates that the vault path exists and contains `.obsidian`, and requires `-ConfirmInstall` before writing plugin files. Use `-WhatIf` to preview the target without copying files.
 
 For a full local smoke check, run:
 
 ```powershell
-.\scripts\smoke-test-plugin.ps1
+.\scripts\smoke-test-plugin.ps1 -VaultPath "E:\Obsidian\PBG Plug in" -ConfirmInstall
 ```

@@ -1,12 +1,14 @@
-import Fastify, { type FastifyInstance } from "fastify";
+import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from "fastify";
 import { API_ROUTES } from "@pbg/shared/contracts";
 import { createPocCourseManifest } from "@pbg/shared/courseManifest";
 import type {
+  AssignmentCoachPreviewResponse,
   AssignmentCoachRunRequest,
   AssignmentCoachRunResponse
 } from "@pbg/shared/workflowContracts";
 
 const POC_ASSIGNMENT_COACH_RUN_ID = "poc-assignment-coach-run";
+const ASSIGNMENT_PATH_PREFIX = "PBG/Assignments/";
 const POC_STUDENT_ID = "00000000-0000-4000-8000-000000000101";
 const POC_USERNAME = "pbg_test_student";
 const POC_PASSWORD = "pbg-test-password";
@@ -89,6 +91,24 @@ export function buildApp(services: AppServices = {}): FastifyInstance {
     logger: false
   });
   const authService = services.authService ?? createSeededPocAuthService();
+  const validAccessTokens = new Set([POC_ACCESS_TOKEN]);
+
+  function isAuthenticated(request: FastifyRequest): boolean {
+    const authorization = request.headers.authorization;
+    if (!authorization?.startsWith("Bearer ")) {
+      return false;
+    }
+
+    return validAccessTokens.has(authorization.slice("Bearer ".length));
+  }
+
+  async function requireAuth(request: FastifyRequest, reply: FastifyReply): Promise<void> {
+    if (!isAuthenticated(request)) {
+      await reply.code(401).send({
+        error: "Missing or invalid bearer token"
+      });
+    }
+  }
 
   app.post<{ Body: LoginRequest }>(API_ROUTES.authLogin, async (request, reply) => {
     const result = await authService.login(request.body);
@@ -99,6 +119,7 @@ export function buildApp(services: AppServices = {}): FastifyInstance {
       });
     }
 
+    validAccessTokens.add(result.accessToken);
     return result;
   });
 
@@ -108,6 +129,8 @@ export function buildApp(services: AppServices = {}): FastifyInstance {
         error: "Invalid refresh token"
       });
     }
+
+    validAccessTokens.add(POC_ACCESS_TOKEN);
 
     return {
       accessToken: POC_ACCESS_TOKEN
@@ -133,7 +156,7 @@ export function buildApp(services: AppServices = {}): FastifyInstance {
     }
   }));
 
-  app.get(API_ROUTES.dashboardMe, async () => ({
+  app.get(API_ROUTES.dashboardMe, { preHandler: requireAuth }, async () => ({
     student: {
       studentId: POC_STUDENT_ID,
       tier: "pro",
@@ -151,11 +174,41 @@ export function buildApp(services: AppServices = {}): FastifyInstance {
     courseManifestVersion: "2026-05-12-poc"
   }));
 
-  app.get(API_ROUTES.courseManifest, async () => createPocCourseManifest());
+  app.get(API_ROUTES.courseManifest, { preHandler: requireAuth }, async () => createPocCourseManifest());
+
+  app.post<{ Body: AssignmentCoachRunRequest }>(
+    API_ROUTES.assignmentCoachPreview,
+    { preHandler: requireAuth },
+    async (request): Promise<AssignmentCoachPreviewResponse> => {
+      const contextCount = request.body.relatedContext.length;
+      const taskCount = request.body.localMetadata.taskCount;
+      const openTaskCount = taskCount - request.body.localMetadata.completedTaskCount;
+
+      return {
+        status: "preview",
+        assignmentPath: request.body.assignmentPath,
+        assignmentTitle: request.body.assignmentTitle,
+        summary:
+          `Preview prepared for ${request.body.assignmentTitle} with ${contextCount} related context ` +
+          `item${contextCount === 1 ? "" : "s"} and ${openTaskCount} open task${openTaskCount === 1 ? "" : "s"}.`,
+        contextCount,
+        taskCount,
+        completedTaskCount: request.body.localMetadata.completedTaskCount
+      };
+    }
+  );
 
   app.post<{ Body: AssignmentCoachRunRequest }>(
     API_ROUTES.assignmentCoachRun,
-    async (request): Promise<AssignmentCoachRunResponse> => {
+    { preHandler: requireAuth },
+    async (request, reply): Promise<AssignmentCoachRunResponse | FastifyReply> => {
+      const scopeError = getAssignmentScopeError(request.body.assignmentPath);
+      if (scopeError) {
+        return reply.code(scopeError.statusCode).send({
+          error: scopeError.message
+        });
+      }
+
       const taskCount = request.body.localMetadata.taskCount;
 
       return {
@@ -183,5 +236,67 @@ export function buildApp(services: AppServices = {}): FastifyInstance {
     }
   );
 
+  app.get<{ Params: { runId: string } }>(
+    API_ROUTES.workflowRun,
+    { preHandler: requireAuth },
+    async (request, reply): Promise<AssignmentCoachRunResponse | FastifyReply> => {
+      if (request.params.runId !== POC_ASSIGNMENT_COACH_RUN_ID) {
+        return reply.code(404).send({
+          error: "Workflow run not found"
+        });
+      }
+
+      return {
+        runId: POC_ASSIGNMENT_COACH_RUN_ID,
+        status: "completed",
+        creditCost: 1,
+        result: {
+          title: "Assignment Coach: POC Run",
+          summary: "Deterministic POC workflow run result.",
+          nextSteps: [
+            "Open PBG/Assignments/connect-first-workflow.md in Obsidian.",
+            "Complete the next unchecked task.",
+            "Sync progress back through the gateway when ready."
+          ],
+          markdown:
+            "# Assignment Coach: POC Run\n\n" +
+            `Run ID: ${POC_ASSIGNMENT_COACH_RUN_ID}\n\n` +
+            "Deterministic POC workflow run result.\n"
+        }
+      };
+    }
+  );
+
   return app;
+}
+
+function getAssignmentScopeError(assignmentPath: string): { statusCode: 400 | 403; message: string } | null {
+  const normalizedPath = normalizeVaultPath(assignmentPath);
+
+  if (!normalizedPath.endsWith(".md")) {
+    return {
+      statusCode: 400,
+      message: "Assignment Coach only accepts markdown assignment files"
+    };
+  }
+
+  if (!normalizedPath.startsWith(ASSIGNMENT_PATH_PREFIX)) {
+    return {
+      statusCode: 403,
+      message: "Assignment Coach only accepts files under PBG/Assignments/"
+    };
+  }
+
+  return null;
+}
+
+function normalizeVaultPath(path: string): string {
+  const normalized = path.replace(/\\/g, "/").replace(/^\/+/, "");
+  const segments = normalized.split("/");
+
+  if (segments.some((segment) => !segment || segment === "." || segment === "..")) {
+    return "";
+  }
+
+  return segments.join("/");
 }
