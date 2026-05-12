@@ -18,6 +18,10 @@
       "types": "./src/courseManifest.ts",
       "default": "./src/courseManifest.ts"
     },
+    "./workflowContracts": {
+      "types": "./src/workflowContracts.ts",
+      "default": "./src/workflowContracts.ts"
+    },
     "./src/contracts": {
       "types": "./src/contracts.ts",
       "default": "./src/contracts.ts"
@@ -25,6 +29,10 @@
     "./src/courseManifest": {
       "types": "./src/courseManifest.ts",
       "default": "./src/courseManifest.ts"
+    },
+    "./src/workflowContracts": {
+      "types": "./src/workflowContracts.ts",
+      "default": "./src/workflowContracts.ts"
     },
     "./package.json": "./package.json"
   }
