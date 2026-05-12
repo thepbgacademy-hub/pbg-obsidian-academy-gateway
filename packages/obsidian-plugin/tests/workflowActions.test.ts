@@ -13,8 +13,10 @@ class FakeVault {
   readonly folders = new Set<string>();
   readonly createdFiles: Array<{ path: string; body: string }> = [];
   readonly createdFolders: string[] = [];
+  readCount = 0;
 
   async read(file: FakeFile): Promise<string> {
+    this.readCount += 1;
     const body = this.files.get(file.path);
     if (body === undefined) {
       throw new Error(`Missing fake file: ${file.path}`);
@@ -147,5 +149,50 @@ describe("runAssignmentCoachForFile", () => {
       path: "PBG/Workflow Results/run-001-1.md",
       body: "# Assignment Coach Result\n"
     });
+  });
+
+  it("rejects non-assignment files before reading or sending note content", async () => {
+    const vault = new FakeVault();
+    const client = new FakeClient();
+    const file = {
+      path: "Private/journal.md",
+      basename: "journal"
+    };
+    vault.files.set(file.path, "# Private note\n");
+
+    await expect(
+      runAssignmentCoachForFile({
+        file: file as TFile,
+        vault: vault as unknown as Vault,
+        client
+      })
+    ).rejects.toThrow("Open an assignment note before running Assignment Coach.");
+
+    expect(vault.readCount).toBe(0);
+    expect(client.requests).toEqual([]);
+    expect(vault.createdFiles).toEqual([]);
+  });
+
+  it.each([
+    ["inline array", "---\ntags: [academy]\n---\n# Assignment\n"],
+    ["inline scalar", "---\ntags: academy\n---\n# Assignment\n"],
+    ["block list", "---\ntags:\n  - academy\n---\n# Assignment\n"]
+  ])("detects academy metadata from YAML %s tags", async (_label, body) => {
+    const vault = new FakeVault();
+    const client = new FakeClient();
+    const file = {
+      path: "PBG/Assignments/connect-first-workflow.md",
+      basename: "connect-first-workflow"
+    };
+    vault.folders.add("PBG/Workflow Results");
+    vault.files.set(file.path, body);
+
+    await runAssignmentCoachForFile({
+      file: file as TFile,
+      vault: vault as unknown as Vault,
+      client
+    });
+
+    expect(client.requests.at(-1)?.localMetadata.tags).toEqual(["academy"]);
   });
 });

@@ -6,7 +6,11 @@ import { PbgDashboardView, VIEW_TYPE_PBG_DASHBOARD } from "./dashboardView.js";
 import { PBG_REQUIRED_PATHS } from "./onboarding.js";
 import { normalizePluginSettings, type PbgAcademyGatewaySettings } from "./settings.js";
 import { PbgAcademyGatewaySettingTab } from "./settingsTab.js";
-import { runAssignmentCoachForFile } from "./workflowActions.js";
+import {
+  getAssignmentCoachScopeNotice,
+  isAssignmentCoachFile,
+  runAssignmentCoachForFile
+} from "./workflowActions.js";
 
 export default class PbgAcademyGatewayPlugin extends Plugin {
   settings: PbgAcademyGatewaySettings = normalizePluginSettings(undefined);
@@ -46,8 +50,8 @@ export default class PbgAcademyGatewayPlugin extends Plugin {
   private async runAssignmentCoachOnActiveNote(): Promise<void> {
     const file = this.app.workspace.getActiveFile();
 
-    if (!file) {
-      new Notice("Open an assignment note before running Assignment Coach.");
+    if (!file || !isAssignmentCoachFile(file)) {
+      new Notice(getAssignmentCoachScopeNotice());
       return;
     }
 
