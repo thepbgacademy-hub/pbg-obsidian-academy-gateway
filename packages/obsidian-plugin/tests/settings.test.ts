@@ -14,4 +14,18 @@ describe("plugin settings", () => {
     expect(normalizeGatewayBaseUrl("   ")).toBe(DEFAULT_PLUGIN_SETTINGS.gatewayBaseUrl);
     expect(normalizeGatewayBaseUrl("not a url")).toBe(DEFAULT_PLUGIN_SETTINGS.gatewayBaseUrl);
   });
+
+  it("preserves optional session tokens", () => {
+    expect(
+      normalizePluginSettings({
+        gatewayBaseUrl: "http://localhost:8788",
+        accessToken: "access-token",
+        refreshToken: "refresh-token"
+      })
+    ).toEqual({
+      gatewayBaseUrl: "http://localhost:8788",
+      accessToken: "access-token",
+      refreshToken: "refresh-token"
+    });
+  });
 });

@@ -11,40 +11,82 @@ const POC_STUDENT_ID = "00000000-0000-4000-8000-000000000101";
 const POC_USERNAME = "pbg_test_student";
 const POC_PASSWORD = "pbg-test-password";
 
-type PocLoginRequest = {
+export type LoginRequest = {
   username: string;
   password: string;
   vaultId: string;
+  deviceFingerprint: string;
+  pluginVersion: string;
 };
 
-export function buildApp(): FastifyInstance {
+export type LoginResponse = {
+  accessToken: string;
+  refreshToken: string;
+  student: {
+    studentId: string;
+    displayName: string;
+    tier: string;
+    standingGood: boolean;
+    creditBalance: number;
+  };
+  device: {
+    deviceId: string;
+    vaultId: string;
+    status: "active";
+  };
+};
+
+export interface AuthService {
+  login(input: LoginRequest): Promise<LoginResponse | null>;
+}
+
+export interface AppServices {
+  authService?: AuthService;
+}
+
+function createSeededPocAuthService(): AuthService {
+  return {
+    login: async (input) => {
+      if (input.username !== POC_USERNAME || input.password !== POC_PASSWORD) {
+        return null;
+      }
+
+      return {
+        accessToken: "short-lived-token",
+        refreshToken: "device-refresh-token",
+        student: {
+          studentId: POC_STUDENT_ID,
+          displayName: "PBG Test Student",
+          tier: "pro",
+          standingGood: true,
+          creditBalance: 250
+        },
+        device: {
+          deviceId: "uuid",
+          vaultId: input.vaultId,
+          status: "active"
+        }
+      };
+    }
+  };
+}
+
+export function buildApp(services: AppServices = {}): FastifyInstance {
   const app = Fastify({
     logger: false
   });
+  const authService = services.authService ?? createSeededPocAuthService();
 
-  app.post<{ Body: PocLoginRequest }>(API_ROUTES.authLogin, async (request, reply) => {
-    if (request.body.username !== POC_USERNAME || request.body.password !== POC_PASSWORD) {
+  app.post<{ Body: LoginRequest }>(API_ROUTES.authLogin, async (request, reply) => {
+    const result = await authService.login(request.body);
+
+    if (!result) {
       return reply.code(401).send({
         error: "Invalid username or password"
       });
     }
 
-    return {
-      accessToken: "short-lived-token",
-      refreshToken: "device-refresh-token",
-      student: {
-        studentId: POC_STUDENT_ID,
-        displayName: "PBG Test Student",
-        tier: "pro",
-        standingGood: true,
-        creditBalance: 250
-      },
-      device: {
-        deviceId: "uuid",
-        vaultId: request.body.vaultId,
-        status: "active"
-      }
-    };
+    return result;
   });
 
   app.get(API_ROUTES.dashboardMe, async () => ({

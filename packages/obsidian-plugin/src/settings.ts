@@ -1,5 +1,7 @@
 export interface PbgAcademyGatewaySettings {
   gatewayBaseUrl: string;
+  accessToken?: string;
+  refreshToken?: string;
 }
 
 export const DEFAULT_PLUGIN_SETTINGS: PbgAcademyGatewaySettings = {
@@ -25,6 +27,8 @@ export function normalizeGatewayBaseUrl(value: unknown): string {
 
 export function normalizePluginSettings(value: Partial<PbgAcademyGatewaySettings> | null | undefined): PbgAcademyGatewaySettings {
   return {
-    gatewayBaseUrl: normalizeGatewayBaseUrl(value?.gatewayBaseUrl)
+    gatewayBaseUrl: normalizeGatewayBaseUrl(value?.gatewayBaseUrl),
+    accessToken: typeof value?.accessToken === "string" ? value.accessToken : undefined,
+    refreshToken: typeof value?.refreshToken === "string" ? value.refreshToken : undefined
   };
 }
