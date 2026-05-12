@@ -1,0 +1,29 @@
+openapi: 3.1.0
+info:
+  title: PBG Obsidian Academy Gateway POC API
+  version: 0.1.0
+paths:
+  /api/auth/login:
+    post:
+      summary: Log in and register the PBG Vault device
+      responses:
+        "200":
+          description: Login accepted
+  /api/dashboard/me:
+    get:
+      summary: Return student standing, credits, workflows, and manifest version
+      responses:
+        "200":
+          description: Dashboard status
+  /api/courses/manifest:
+    get:
+      summary: Return entitled local-first course files
+      responses:
+        "200":
+          description: Course manifest
+  /api/workflows/assignment-coach/run:
+    post:
+      summary: Run Assignment Coach after explicit student action
+      responses:
+        "200":
+          description: Workflow result
