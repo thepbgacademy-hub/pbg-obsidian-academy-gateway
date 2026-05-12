@@ -6,6 +6,20 @@ Build a PBG Academy Obsidian plugin that turns a dedicated PBG Vault into a loca
 
 The first feasibility test should prove the bridge: the plugin loads in a test vault, creates the standard PBG folder structure, authenticates against Academy Core, registers one active vault/device for the student, renders a dashboard shell, syncs entitled course content locally, and runs the first explicit Assignment Coach workflow.
 
+## Project Repository
+
+This project now has a dedicated GitHub repository:
+
+```text
+https://github.com/thepbgacademy-hub/pbg-obsidian-academy-gateway
+```
+
+The repository is the canonical home for the Obsidian plugin source, `pbg_obsidian` migrations, gateway/API code, design specs, implementation plans, and test fixtures. The local working clone used for this build is:
+
+```text
+C:\tmp\pbg-obsidian-academy-gateway
+```
+
 ## Goals
 
 - Create a dedicated PBG Vault experience inside Obsidian.
