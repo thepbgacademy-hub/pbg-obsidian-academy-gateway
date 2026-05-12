@@ -54,12 +54,13 @@ class FakeVault {
 
 class FakeClient {
   readonly requests: AssignmentCoachRunRequest[] = [];
+  runId = "run-001";
 
   async runAssignmentCoach(payload: AssignmentCoachRunRequest): Promise<AssignmentCoachRunResponse> {
     this.requests.push(payload);
 
     return {
-      runId: "run-001",
+      runId: this.runId,
       status: "completed",
       creditCost: 1,
       result: {
@@ -150,6 +151,32 @@ describe("runAssignmentCoachForFile", () => {
       body: "# Assignment Coach Result\n"
     });
   });
+
+  it.each(["../outside", "foo/bar"])(
+    "sanitizes unsafe run id %s before saving workflow results",
+    async (runId) => {
+      const vault = new FakeVault();
+      const client = new FakeClient();
+      const file = {
+        path: "PBG/Assignments/connect-first-workflow.md",
+        basename: "connect-first-workflow"
+      };
+      client.runId = runId;
+      vault.folders.add("PBG/Workflow Results");
+      vault.files.set(file.path, "# Connect First Workflow\n- [ ] Run Assignment Coach\n");
+
+      const resultPath = await runAssignmentCoachForFile({
+        file: file as TFile,
+        vault: vault as unknown as Vault,
+        client
+      });
+
+      expect(resultPath).toBe("PBG/Workflow Results/assignment-coach-result.md");
+      expect(resultPath.startsWith("PBG/Workflow Results/")).toBe(true);
+      expect(resultPath.slice("PBG/Workflow Results/".length)).not.toMatch(/\/|\.\./);
+      expect(vault.createdFiles.at(-1)?.path).toBe(resultPath);
+    }
+  );
 
   it("rejects non-assignment files before reading or sending note content", async () => {
     const vault = new FakeVault();

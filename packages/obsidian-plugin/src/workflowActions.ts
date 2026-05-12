@@ -3,6 +3,8 @@ import type { TFile, Vault } from "obsidian";
 
 const ASSIGNMENT_COACH_SCOPE_NOTICE = "Open an assignment note before running Assignment Coach.";
 const ASSIGNMENT_PATH_PREFIX = "PBG/Assignments/";
+const FALLBACK_RESULT_FILENAME = "assignment-coach-result";
+const SAFE_RESULT_FILENAME_PATTERN = /^[A-Za-z0-9_-]+$/;
 
 export interface AssignmentCoachClient {
   runAssignmentCoach(payload: AssignmentCoachRunRequest): Promise<AssignmentCoachRunResponse>;
@@ -138,7 +140,8 @@ async function ensureFolderPath(vault: Vault, folderPath: string): Promise<void>
 }
 
 function getAvailableResultPath(vault: Vault, runId: string): string {
-  const basePath = `PBG/Workflow Results/${runId}`;
+  const safeRunId = getSafeResultFilename(runId);
+  const basePath = `PBG/Workflow Results/${safeRunId}`;
   let path = `${basePath}.md`;
   let suffix = 1;
 
@@ -148,4 +151,8 @@ function getAvailableResultPath(vault: Vault, runId: string): string {
   }
 
   return path;
+}
+
+function getSafeResultFilename(runId: string): string {
+  return SAFE_RESULT_FILENAME_PATTERN.test(runId) ? runId : FALLBACK_RESULT_FILENAME;
 }
