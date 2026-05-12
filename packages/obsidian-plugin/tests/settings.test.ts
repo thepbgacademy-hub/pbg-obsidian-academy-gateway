@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_PLUGIN_SETTINGS, normalizeGatewayBaseUrl, normalizePluginSettings } from "../src/settings.js";
+import {
+  DEFAULT_PLUGIN_SETTINGS,
+  normalizeGatewayBaseUrl,
+  normalizePluginSettings,
+  updateGatewayBaseUrl
+} from "../src/settings.js";
 
 describe("plugin settings", () => {
   it("defaults the gateway base URL to the local gateway", () => {
@@ -22,6 +27,23 @@ describe("plugin settings", () => {
         accessToken: "access-token",
         refreshToken: "refresh-token"
       })
+    ).toEqual({
+      gatewayBaseUrl: "http://localhost:8788",
+      accessToken: "access-token",
+      refreshToken: "refresh-token"
+    });
+  });
+
+  it("preserves optional session tokens when updating the gateway base URL", () => {
+    expect(
+      updateGatewayBaseUrl(
+        {
+          gatewayBaseUrl: "http://localhost:8787",
+          accessToken: "access-token",
+          refreshToken: "refresh-token"
+        },
+        " http://localhost:8788/// "
+      )
     ).toEqual({
       gatewayBaseUrl: "http://localhost:8788",
       accessToken: "access-token",

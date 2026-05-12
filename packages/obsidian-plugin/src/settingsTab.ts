@@ -1,6 +1,6 @@
 import { App, PluginSettingTab, Setting } from "obsidian";
 import type PbgAcademyGatewayPlugin from "./main.js";
-import { DEFAULT_PLUGIN_SETTINGS, normalizePluginSettings } from "./settings.js";
+import { DEFAULT_PLUGIN_SETTINGS, updateGatewayBaseUrl } from "./settings.js";
 
 export class PbgAcademyGatewaySettingTab extends PluginSettingTab {
   constructor(app: App, private readonly plugin: PbgAcademyGatewayPlugin) {
@@ -19,7 +19,7 @@ export class PbgAcademyGatewaySettingTab extends PluginSettingTab {
           .setPlaceholder(DEFAULT_PLUGIN_SETTINGS.gatewayBaseUrl)
           .setValue(this.plugin.settings.gatewayBaseUrl)
           .onChange(async (value) => {
-            this.plugin.settings = normalizePluginSettings({ gatewayBaseUrl: value });
+            this.plugin.settings = updateGatewayBaseUrl(this.plugin.settings, value);
             await this.plugin.saveSettings();
           })
       );

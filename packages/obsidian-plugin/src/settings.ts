@@ -32,3 +32,13 @@ export function normalizePluginSettings(value: Partial<PbgAcademyGatewaySettings
     refreshToken: typeof value?.refreshToken === "string" ? value.refreshToken : undefined
   };
 }
+
+export function updateGatewayBaseUrl(
+  settings: PbgAcademyGatewaySettings,
+  gatewayBaseUrl: string
+): PbgAcademyGatewaySettings {
+  return normalizePluginSettings({
+    ...settings,
+    gatewayBaseUrl
+  });
+}

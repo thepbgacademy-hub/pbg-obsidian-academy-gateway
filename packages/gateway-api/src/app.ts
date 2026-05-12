@@ -10,6 +10,8 @@ const POC_ASSIGNMENT_COACH_RUN_ID = "poc-assignment-coach-run";
 const POC_STUDENT_ID = "00000000-0000-4000-8000-000000000101";
 const POC_USERNAME = "pbg_test_student";
 const POC_PASSWORD = "pbg-test-password";
+const POC_REFRESH_TOKEN = "poc-refresh-token";
+const POC_ACCESS_TOKEN = "short-lived-token";
 
 export type LoginRequest = {
   username: string;
@@ -36,6 +38,17 @@ export type LoginResponse = {
   };
 };
 
+export type RefreshRequest = {
+  refreshToken: string;
+};
+
+export type DeviceRegisterRequest = {
+  studentId: string;
+  vaultId: string;
+  deviceFingerprint: string;
+  pluginVersion: string;
+};
+
 export interface AuthService {
   login(input: LoginRequest): Promise<LoginResponse | null>;
 }
@@ -52,7 +65,7 @@ function createSeededPocAuthService(): AuthService {
       }
 
       return {
-        accessToken: "short-lived-token",
+        accessToken: POC_ACCESS_TOKEN,
         refreshToken: "device-refresh-token",
         student: {
           studentId: POC_STUDENT_ID,
@@ -88,6 +101,37 @@ export function buildApp(services: AppServices = {}): FastifyInstance {
 
     return result;
   });
+
+  app.post<{ Body: RefreshRequest }>(API_ROUTES.authRefresh, async (request, reply) => {
+    if (request.body.refreshToken !== POC_REFRESH_TOKEN) {
+      return reply.code(401).send({
+        error: "Invalid refresh token"
+      });
+    }
+
+    return {
+      accessToken: POC_ACCESS_TOKEN
+    };
+  });
+
+  app.post(API_ROUTES.authLogout, async () => ({
+    ok: true
+  }));
+
+  app.post<{ Body: DeviceRegisterRequest }>(API_ROUTES.deviceRegister, async (request) => ({
+    device: {
+      deviceId: "poc-active-device",
+      studentId: request.body.studentId,
+      vaultId: request.body.vaultId,
+      deviceFingerprint: request.body.deviceFingerprint,
+      pluginVersion: request.body.pluginVersion,
+      status: "active"
+    },
+    oneActiveDevice: {
+      enforced: false,
+      semantics: "poc-stub"
+    }
+  }));
 
   app.get(API_ROUTES.dashboardMe, async () => ({
     student: {
