@@ -7,11 +7,63 @@ import type {
 } from "@pbg/shared/workflowContracts";
 
 const POC_ASSIGNMENT_COACH_RUN_ID = "poc-assignment-coach-run";
+const POC_STUDENT_ID = "00000000-0000-4000-8000-000000000101";
+const POC_USERNAME = "pbg_test_student";
+const POC_PASSWORD = "pbg-test-password";
+
+type PocLoginRequest = {
+  username: string;
+  password: string;
+  vaultId: string;
+};
 
 export function buildApp(): FastifyInstance {
   const app = Fastify({
     logger: false
   });
+
+  app.post<{ Body: PocLoginRequest }>(API_ROUTES.authLogin, async (request, reply) => {
+    if (request.body.username !== POC_USERNAME || request.body.password !== POC_PASSWORD) {
+      return reply.code(401).send({
+        error: "Invalid username or password"
+      });
+    }
+
+    return {
+      accessToken: "short-lived-token",
+      refreshToken: "device-refresh-token",
+      student: {
+        studentId: POC_STUDENT_ID,
+        displayName: "PBG Test Student",
+        tier: "pro",
+        standingGood: true,
+        creditBalance: 250
+      },
+      device: {
+        deviceId: "uuid",
+        vaultId: request.body.vaultId,
+        status: "active"
+      }
+    };
+  });
+
+  app.get(API_ROUTES.dashboardMe, async () => ({
+    student: {
+      studentId: POC_STUDENT_ID,
+      tier: "pro",
+      standingGood: true,
+      creditBalance: 250
+    },
+    workflows: [
+      {
+        slug: "assignment-coach",
+        name: "Assignment Coach",
+        enabled: true,
+        creditCost: 1
+      }
+    ],
+    courseManifestVersion: "2026-05-12-poc"
+  }));
 
   app.get(API_ROUTES.courseManifest, async () => createPocCourseManifest());
 

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { API_ROUTES } from "@pbg/shared/contracts";
 import { createPocCourseManifest } from "@pbg/shared/courseManifest";
 import type {
   AssignmentCoachRunRequest,
@@ -7,12 +8,101 @@ import type {
 import { buildApp } from "../src/app.js";
 
 describe("gateway API routes", () => {
+  it("accepts the seeded POC credentials", async () => {
+    const app = buildApp();
+
+    const response = await app.inject({
+      method: "POST",
+      url: API_ROUTES.authLogin,
+      payload: {
+        username: "pbg_test_student",
+        password: "pbg-test-password",
+        vaultId: "sha256-vault-id",
+        deviceFingerprint: "sha256-device-fingerprint",
+        pluginVersion: "0.1.0"
+      }
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({
+      accessToken: "short-lived-token",
+      refreshToken: "device-refresh-token",
+      student: {
+        studentId: "00000000-0000-4000-8000-000000000101",
+        displayName: "PBG Test Student",
+        tier: "pro",
+        standingGood: true,
+        creditBalance: 250
+      },
+      device: {
+        deviceId: "uuid",
+        vaultId: "sha256-vault-id",
+        status: "active"
+      }
+    });
+
+    await app.close();
+  });
+
+  it("rejects invalid POC credentials", async () => {
+    const app = buildApp();
+
+    const response = await app.inject({
+      method: "POST",
+      url: API_ROUTES.authLogin,
+      payload: {
+        username: "pbg_test_student",
+        password: "wrong-password",
+        vaultId: "sha256-vault-id",
+        deviceFingerprint: "sha256-device-fingerprint",
+        pluginVersion: "0.1.0"
+      }
+    });
+
+    expect(response.statusCode).toBe(401);
+    expect(response.json()).toEqual({
+      error: "Invalid username or password"
+    });
+
+    await app.close();
+  });
+
+  it("returns the POC dashboard state", async () => {
+    const app = buildApp();
+
+    const response = await app.inject({
+      method: "GET",
+      url: API_ROUTES.dashboardMe
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({
+      student: {
+        studentId: "00000000-0000-4000-8000-000000000101",
+        tier: "pro",
+        standingGood: true,
+        creditBalance: 250
+      },
+      workflows: [
+        {
+          slug: "assignment-coach",
+          name: "Assignment Coach",
+          enabled: true,
+          creditCost: 1
+        }
+      ],
+      courseManifestVersion: "2026-05-12-poc"
+    });
+
+    await app.close();
+  });
+
   it("returns the POC course manifest", async () => {
     const app = buildApp();
 
     const response = await app.inject({
       method: "GET",
-      url: "/api/courses/manifest"
+      url: API_ROUTES.courseManifest
     });
 
     expect(response.statusCode).toBe(200);
@@ -43,7 +133,7 @@ describe("gateway API routes", () => {
 
     const response = await app.inject({
       method: "POST",
-      url: "/api/workflows/assignment-coach/run",
+      url: API_ROUTES.assignmentCoachRun,
       payload: request
     });
     const body = response.json<AssignmentCoachRunResponse>();
