@@ -448,6 +448,57 @@ Note: the executive count treats the secret-scan Low finding as overlapping with
 
 ---
 
+## Test Build vs Public Launch Risk Acceptance
+
+This appendix was added after an independent read-only review of this report from the GitHub-backed branch `codex/pbg-obsidian-poc` at commit `ee68502501e57b56d1d02779708142b85da9543e`. The reviewer's conclusion matches the primary audit: several findings are tolerable only while the project remains a private, local POC using fake data and non-public networking. Those same findings become launch blockers once the gateway is reachable from a VPS, handles real student accounts, stores real sessions, enforces paid credits, or ships a distributed plugin bundle.
+
+### Current Private Test Build
+
+The following risks are acceptable for the current test build only under all of these conditions:
+
+- The gateway is used by trusted builders only.
+- The API remains local or explicitly firewalled from public access.
+- The POC credentials and deterministic tokens are treated as fake fixtures.
+- No real OpenAI, Stripe, Supabase service-role, Telegram, database, or provider secrets are committed.
+- Workflow results remain mocked or deterministic and are not used to enforce real billing.
+- No real student privacy, payment, subscription, or vault-content obligations are delegated to this POC code.
+
+### Risk Classification Matrix
+
+| Finding/category | Tolerable during private test build? | Required before public launch | Rationale |
+|---|---|---|---|
+| Hard-coded POC credentials and deterministic bearer/refresh tokens | Yes, only for private localhost POC | Replace with academy auth, expiring signed access tokens, hashed refresh tokens, and server-side revocation | This is the main launch blocker; exposed literals would grant access to protected routes. |
+| API defaults to `0.0.0.0` | No for VPS/shared networks; yes only if manually kept local/firewalled | Default to `127.0.0.1`, add production startup guard, and require real auth before external bind | POC auth plus all-interface binding turns test code into a reachable weak-auth service. |
+| Fastify dependency tree vulnerable via `fast-uri` | Yes, for local-only POC with no public traffic | Upgrade Fastify/dependency tree and block release while high-severity audit fails | High-severity runtime dependency issues belong in the launch gate even when current exploitability is contextual. |
+| Device registration trusts caller-supplied `studentId` | Yes, for mocked POC flows | Require auth and derive student identity server-side | Public launch needs device identity bound to the authenticated academy account. |
+| Credit/subscription/entitlement checks are represented but not enforced | Yes, for demo responses only | Enforce standing, entitlement, device state, and credits atomically before workflow execution | The gateway is intended to be a subscription and academy-credit boundary; mock enforcement cannot remain. |
+| Plaintext token storage in Obsidian plugin settings | Yes, for fake POC tokens | Avoid storing secrets where practical; otherwise use short-lived, rotating, device-bound, revocable tokens | Local vault/plugin data can be copied, so production refresh tokens need stronger handling. |
+| No rate limiting on login, refresh, or workflows | Yes, in isolated local testing | Add per-IP, per-account, and per-device limits, especially around login and paid workflows | Rate limits reduce brute force risk and academy-credit/spend abuse. |
+| Logout does not revoke sessions | Yes, with fake in-memory POC tokens | Revoke server-side session and refresh token state on logout | Public users expect logout to terminate access. |
+| Missing runtime JSON schemas | Yes, with controlled POC clients | Add Fastify schemas for auth, workflow, and device request bodies | Runtime validation prevents avoidable 500s and malformed-input abuse. |
+| Missing security audit logging | Yes, for local dev | Log auth failures, token failures, authorization denials, device events, and workflow-spend events without secrets or vault bodies | Audit logs are required for incident response, fraud detection, and operational accountability. |
+| Dev tooling vulnerabilities in `esbuild`/`vite`/`vitest` | Yes, for trusted local dev networks | Upgrade before public repo/release CI hardening | Lower risk than runtime Fastify issues, but still should not persist into release process. |
+| Inline sourcemaps in plugin bundle | Yes, for debug builds | Disable for production builds | Production plugin artifacts should avoid exposing source and implementation details. |
+| No live provider secrets found | Yes | Keep CI/pre-commit secret scanning and add `.env.example`; keep real secrets out of git | This is a positive result, but production secret management still needs to be defined. |
+
+### Public Launch Gates
+
+These gates must pass before a public product launch or public VPS deployment:
+
+1. **Production authentication and sessions:** remove all POC credentials/tokens, authenticate against the academy account system, issue expiring access tokens, store only hashed refresh tokens server-side, and revoke sessions on logout/password/device changes.
+2. **Safe exposure controls:** default to localhost, require explicit production configuration for public binding, and refuse startup when real auth, rate limits, and audit logging are not configured.
+3. **Subscription, credit, and device enforcement:** enforce good standing, workflow entitlements, available academy credits, and one-active-device rules before queueing or running workflows.
+4. **Dependency and release security gate:** clear high-severity dependency advisories, especially the Fastify/`fast-uri` chain, and make `npm audit --audit-level=high` a release blocker.
+5. **Validation and observability:** add runtime request schemas plus structured security/audit logging for auth, access control, device registration, and workflow-spend events while excluding passwords, bearer tokens, provider keys, and raw vault bodies.
+
+### Codex Analysis
+
+For the current phase, the team can keep moving with the POC as long as it stays private and local. The most important immediate adjustment is procedural: nobody should run this gateway publicly on the VPS until the production-auth gate and safe-exposure gate are done. The moment real students, real subscription status, real credits, or real provider connectors enter the system, the tolerable-risk column collapses and the public-launch requirements become mandatory engineering work.
+
+The clean boundary remains the same: the plugin may read the user's designated PBG vault content locally and send only workflow-specific context after a user action, while the server stores minimal metadata for sessions, devices, workflow runs, credit debits, and audit events. This model is compatible with launch, but only after enforcement and logging move from documented intent into server-side code.
+
+---
+
 ## Secret Exposure Scan
 
 Dedicated report: `audit/2026-05-12/secret-scan-report.md`
