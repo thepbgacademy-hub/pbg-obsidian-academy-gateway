@@ -239,6 +239,35 @@ describe("gateway API routes", () => {
     await app.close();
   });
 
+  it.each([
+    ["Private/journal.md", 403],
+    ["PBG/Assignments/journal.txt", 400]
+  ])("rejects assignment coach previews outside assignment markdown scope: %s", async (assignmentPath, statusCode) => {
+    const app = buildApp();
+
+    const response = await app.inject({
+      method: "POST",
+      url: API_ROUTES.assignmentCoachPreview,
+      headers: await authHeaders(),
+      payload: {
+        assignmentPath,
+        assignmentTitle: "Journal",
+        assignmentBody: "# Private body must not be accepted\n",
+        relatedContext: [],
+        localMetadata: {
+          taskCount: 0,
+          completedTaskCount: 0,
+          tags: []
+        }
+      }
+    });
+
+    expect(response.statusCode).toBe(statusCode);
+    expect(response.body).not.toContain("Private body must not be accepted");
+
+    await app.close();
+  });
+
   it("runs the deterministic POC assignment coach workflow", async () => {
     const app = buildApp();
     const request: AssignmentCoachRunRequest = {

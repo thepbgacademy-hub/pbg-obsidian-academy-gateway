@@ -179,7 +179,14 @@ export function buildApp(services: AppServices = {}): FastifyInstance {
   app.post<{ Body: AssignmentCoachRunRequest }>(
     API_ROUTES.assignmentCoachPreview,
     { preHandler: requireAuth },
-    async (request): Promise<AssignmentCoachPreviewResponse> => {
+    async (request, reply): Promise<AssignmentCoachPreviewResponse | FastifyReply> => {
+      const scopeError = getAssignmentScopeError(request.body.assignmentPath);
+      if (scopeError) {
+        return reply.code(scopeError.statusCode).send({
+          error: scopeError.message
+        });
+      }
+
       const contextCount = request.body.relatedContext.length;
       const taskCount = request.body.localMetadata.taskCount;
       const openTaskCount = taskCount - request.body.localMetadata.completedTaskCount;
