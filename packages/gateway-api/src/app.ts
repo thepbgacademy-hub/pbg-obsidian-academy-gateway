@@ -6,6 +6,7 @@ import type {
   AssignmentCoachRunRequest,
   AssignmentCoachRunResponse
 } from "@pbg/shared/workflowContracts";
+import type { AuthenticatedStudent } from "./auth/passwordAuth.js";
 
 const POC_ASSIGNMENT_COACH_RUN_ID = "poc-assignment-coach-run";
 const ASSIGNMENT_PATH_PREFIX = "PBG/Assignments/";
@@ -45,7 +46,7 @@ export type RefreshRequest = {
 };
 
 export type DeviceRegisterRequest = {
-  studentId: string;
+  studentId?: string;
   vaultId: string;
   deviceFingerprint: string;
   pluginVersion: string;
@@ -55,8 +56,69 @@ export interface AuthService {
   login(input: LoginRequest): Promise<LoginResponse | null>;
 }
 
+export interface AuthenticatedGatewaySession {
+  accessToken: string;
+  student: AuthenticatedStudent;
+}
+
+export interface SessionService {
+  createSession(login: LoginResponse): Promise<void>;
+  authenticate(accessToken: string): Promise<AuthenticatedGatewaySession | null>;
+  refresh(refreshToken: string): Promise<{ accessToken: string } | null>;
+  revoke(input: { accessToken: string; refreshToken: string }): Promise<void>;
+}
+
+export interface DeviceRegistrationService {
+  registerDevice(input: Required<DeviceRegisterRequest>): Promise<{
+    deviceId: string;
+    vaultId: string;
+    status: "active";
+  }>;
+}
+
+export interface WorkflowAuthorizationDenied {
+  allowed: false;
+  statusCode: 402 | 403;
+  reason: string;
+  message: string;
+}
+
+export interface WorkflowAuthorizationAllowed {
+  allowed: true;
+  creditCost: number;
+}
+
+export interface WorkflowGuard {
+  authorize(input: {
+    student: AuthenticatedStudent;
+    workflowSlug: "assignment-coach";
+    creditCost: number;
+  }): Promise<WorkflowAuthorizationAllowed | WorkflowAuthorizationDenied>;
+}
+
+export interface AuditEvent {
+  type: string;
+  route: string;
+  studentId?: string;
+  reason?: string;
+  statusCode?: number;
+  username?: string;
+}
+
+export interface AuditSink {
+  capture(event: AuditEvent): Promise<void> | void;
+}
+
 export interface AppServices {
   authService?: AuthService;
+  sessionService?: SessionService;
+  deviceRegistrationService?: DeviceRegistrationService;
+  workflowGuard?: WorkflowGuard;
+  auditSink?: AuditSink;
+  rateLimit?: {
+    max: number;
+    windowMs: number;
+  };
 }
 
 function createSeededPocAuthService(): AuthService {
@@ -86,82 +148,252 @@ function createSeededPocAuthService(): AuthService {
   };
 }
 
+function createInMemoryPocSessionService(): SessionService {
+  const sessionsByAccessToken = new Map<string, AuthenticatedGatewaySession>();
+  const accessTokenByRefreshToken = new Map<string, string>();
+  const revokedRefreshTokens = new Set<string>();
+  const seededStudent: AuthenticatedStudent = {
+    studentId: POC_STUDENT_ID,
+    displayName: "PBG Test Student",
+    tier: "pro",
+    standingGood: true,
+    creditBalance: 250
+  };
+
+  sessionsByAccessToken.set(POC_ACCESS_TOKEN, {
+    accessToken: POC_ACCESS_TOKEN,
+    student: seededStudent
+  });
+  accessTokenByRefreshToken.set(POC_REFRESH_TOKEN, POC_ACCESS_TOKEN);
+
+  return {
+    createSession: async (login) => {
+      sessionsByAccessToken.set(login.accessToken, {
+        accessToken: login.accessToken,
+        student: login.student
+      });
+      accessTokenByRefreshToken.set(login.refreshToken, login.accessToken);
+      revokedRefreshTokens.delete(login.refreshToken);
+    },
+    authenticate: async (accessToken) => sessionsByAccessToken.get(accessToken) ?? null,
+    refresh: async (refreshToken) => {
+      if (revokedRefreshTokens.has(refreshToken)) {
+        return null;
+      }
+
+      const accessToken = accessTokenByRefreshToken.get(refreshToken);
+      if (!accessToken) {
+        return null;
+      }
+
+      const session = sessionsByAccessToken.get(accessToken);
+      if (!session) {
+        return null;
+      }
+
+      sessionsByAccessToken.set(accessToken, session);
+      return { accessToken };
+    },
+    revoke: async ({ accessToken, refreshToken }) => {
+      sessionsByAccessToken.delete(accessToken);
+      accessTokenByRefreshToken.delete(refreshToken);
+      revokedRefreshTokens.add(refreshToken);
+    }
+  };
+}
+
+function createPocDeviceRegistrationService(): DeviceRegistrationService {
+  return {
+    registerDevice: async (input) => ({
+      deviceId: "poc-active-device",
+      vaultId: input.vaultId,
+      status: "active"
+    })
+  };
+}
+
+function createPocWorkflowGuard(): WorkflowGuard {
+  return {
+    authorize: async ({ student, creditCost }) => {
+      if (!student.standingGood) {
+        return {
+          allowed: false,
+          statusCode: 403,
+          reason: "student_not_in_good_standing",
+          message: "Student is not in good standing"
+        };
+      }
+
+      if (student.creditBalance < creditCost) {
+        return {
+          allowed: false,
+          statusCode: 402,
+          reason: "insufficient_credits",
+          message: "Insufficient credits"
+        };
+      }
+
+      return {
+        allowed: true,
+        creditCost
+      };
+    }
+  };
+}
+
 export function buildApp(services: AppServices = {}): FastifyInstance {
   const app = Fastify({
     logger: false
   });
   const authService = services.authService ?? createSeededPocAuthService();
-  const validAccessTokens = new Set([POC_ACCESS_TOKEN]);
+  const sessionService = services.sessionService ?? createInMemoryPocSessionService();
+  const deviceRegistrationService = services.deviceRegistrationService ?? createPocDeviceRegistrationService();
+  const workflowGuard = services.workflowGuard ?? createPocWorkflowGuard();
+  const auditSink = services.auditSink;
+  const rateLimitBuckets = new Map<string, { count: number; resetAt: number }>();
 
-  function isAuthenticated(request: FastifyRequest): boolean {
-    const authorization = request.headers.authorization;
-    if (!authorization?.startsWith("Bearer ")) {
-      return false;
+  async function captureAudit(event: AuditEvent): Promise<void> {
+    await auditSink?.capture(event);
+  }
+
+  app.addHook("onRequest", async (request, reply) => {
+    if (!services.rateLimit) {
+      return;
     }
 
-    return validAccessTokens.has(authorization.slice("Bearer ".length));
+    const routeKey = `${request.ip}:${request.method}:${request.url.split("?")[0]}`;
+    const now = Date.now();
+    const bucket = rateLimitBuckets.get(routeKey);
+    if (!bucket || bucket.resetAt <= now) {
+      rateLimitBuckets.set(routeKey, {
+        count: 1,
+        resetAt: now + services.rateLimit.windowMs
+      });
+      return;
+    }
+
+    bucket.count += 1;
+    if (bucket.count > services.rateLimit.max) {
+      await reply.code(429).send({
+        error: "Rate limit exceeded"
+      });
+    }
+  });
+
+  async function authenticate(request: FastifyRequest): Promise<AuthenticatedGatewaySession | null> {
+    const authorization = request.headers.authorization;
+    if (!authorization?.startsWith("Bearer ")) {
+      return null;
+    }
+
+    return sessionService.authenticate(authorization.slice("Bearer ".length));
   }
 
   async function requireAuth(request: FastifyRequest, reply: FastifyReply): Promise<void> {
-    if (!isAuthenticated(request)) {
+    const session = await authenticate(request);
+    if (!session) {
+      await captureAudit({
+        type: "auth.bearer.denied",
+        route: request.url,
+        statusCode: 401
+      });
       await reply.code(401).send({
         error: "Missing or invalid bearer token"
       });
+      return;
     }
+
+    request.authSession = session;
   }
 
   app.post<{ Body: LoginRequest }>(API_ROUTES.authLogin, async (request, reply) => {
+    if (!isLoginRequest(request.body)) {
+      return reply.code(400).send({
+        error: "Invalid login request"
+      });
+    }
+
     const result = await authService.login(request.body);
 
     if (!result) {
+      await captureAudit({
+        type: "auth.login.denied",
+        route: API_ROUTES.authLogin,
+        statusCode: 401,
+        username: typeof request.body?.username === "string" ? request.body.username : undefined
+      });
       return reply.code(401).send({
         error: "Invalid username or password"
       });
     }
 
-    validAccessTokens.add(result.accessToken);
+    await sessionService.createSession(result);
     return result;
   });
 
   app.post<{ Body: RefreshRequest }>(API_ROUTES.authRefresh, async (request, reply) => {
-    if (request.body.refreshToken !== POC_REFRESH_TOKEN) {
+    const result = await sessionService.refresh(request.body.refreshToken);
+    if (!result) {
       return reply.code(401).send({
         error: "Invalid refresh token"
       });
     }
 
-    validAccessTokens.add(POC_ACCESS_TOKEN);
+    return result;
+  });
+
+  app.post<{ Body: RefreshRequest }>(API_ROUTES.authLogout, { preHandler: requireAuth }, async (request) => {
+    const accessToken = request.authSession.accessToken;
+    await sessionService.revoke({
+      accessToken,
+      refreshToken: request.body.refreshToken
+    });
 
     return {
-      accessToken: POC_ACCESS_TOKEN
+      ok: true
     };
   });
 
-  app.post(API_ROUTES.authLogout, async () => ({
-    ok: true
-  }));
+  app.post<{ Body: DeviceRegisterRequest }>(
+    API_ROUTES.deviceRegister,
+    { preHandler: requireAuth },
+    async (request, reply) => {
+      if (!isDeviceRegisterRequest(request.body)) {
+        return reply.code(400).send({
+          error: "Invalid device registration request"
+        });
+      }
 
-  app.post<{ Body: DeviceRegisterRequest }>(API_ROUTES.deviceRegister, async (request) => ({
-    device: {
-      deviceId: "poc-active-device",
-      studentId: request.body.studentId,
-      vaultId: request.body.vaultId,
-      deviceFingerprint: request.body.deviceFingerprint,
-      pluginVersion: request.body.pluginVersion,
-      status: "active"
-    },
-    oneActiveDevice: {
-      enforced: false,
-      semantics: "poc-stub"
+      const studentId = request.authSession.student.studentId;
+      const input = {
+        studentId,
+        vaultId: request.body.vaultId,
+        deviceFingerprint: request.body.deviceFingerprint,
+        pluginVersion: request.body.pluginVersion
+      };
+      const device = await deviceRegistrationService.registerDevice(input);
+
+      return {
+        device: {
+          ...device,
+          studentId,
+          deviceFingerprint: input.deviceFingerprint,
+          pluginVersion: input.pluginVersion
+        },
+        oneActiveDevice: {
+          enforced: false,
+          semantics: "poc-stub"
+        }
+      };
     }
-  }));
+  );
 
-  app.get(API_ROUTES.dashboardMe, { preHandler: requireAuth }, async () => ({
+  app.get(API_ROUTES.dashboardMe, { preHandler: requireAuth }, async (request) => ({
     student: {
-      studentId: POC_STUDENT_ID,
-      tier: "pro",
-      standingGood: true,
-      creditBalance: 250
+      studentId: request.authSession.student.studentId,
+      tier: request.authSession.student.tier,
+      standingGood: request.authSession.student.standingGood,
+      creditBalance: request.authSession.student.creditBalance
     },
     workflows: [
       {
@@ -180,6 +412,12 @@ export function buildApp(services: AppServices = {}): FastifyInstance {
     API_ROUTES.assignmentCoachPreview,
     { preHandler: requireAuth },
     async (request, reply): Promise<AssignmentCoachPreviewResponse | FastifyReply> => {
+      if (!isAssignmentCoachRunRequest(request.body)) {
+        return reply.code(400).send({
+          error: "Invalid Assignment Coach request"
+        });
+      }
+
       const scopeError = getAssignmentScopeError(request.body.assignmentPath);
       if (scopeError) {
         return reply.code(scopeError.statusCode).send({
@@ -209,10 +447,34 @@ export function buildApp(services: AppServices = {}): FastifyInstance {
     API_ROUTES.assignmentCoachRun,
     { preHandler: requireAuth },
     async (request, reply): Promise<AssignmentCoachRunResponse | FastifyReply> => {
+      if (!isAssignmentCoachRunRequest(request.body)) {
+        return reply.code(400).send({
+          error: "Invalid Assignment Coach request"
+        });
+      }
+
       const scopeError = getAssignmentScopeError(request.body.assignmentPath);
       if (scopeError) {
         return reply.code(scopeError.statusCode).send({
           error: scopeError.message
+        });
+      }
+
+      const authorization = await workflowGuard.authorize({
+        student: request.authSession.student,
+        workflowSlug: "assignment-coach",
+        creditCost: 1
+      });
+      if (!authorization.allowed) {
+        await captureAudit({
+          type: "workflow.denied",
+          route: API_ROUTES.assignmentCoachRun,
+          studentId: request.authSession.student.studentId,
+          reason: authorization.reason,
+          statusCode: authorization.statusCode
+        });
+        return reply.code(authorization.statusCode).send({
+          error: authorization.message
         });
       }
 
@@ -275,6 +537,89 @@ export function buildApp(services: AppServices = {}): FastifyInstance {
   );
 
   return app;
+}
+
+declare module "fastify" {
+  interface FastifyRequest {
+    authSession: AuthenticatedGatewaySession;
+  }
+}
+
+function isLoginRequest(value: unknown): value is LoginRequest {
+  if (!isRecord(value)) {
+    return false;
+  }
+
+  return (
+    isNonEmptyString(value.username) &&
+    isNonEmptyString(value.password) &&
+    isNonEmptyString(value.vaultId) &&
+    isNonEmptyString(value.deviceFingerprint) &&
+    isNonEmptyString(value.pluginVersion)
+  );
+}
+
+function isDeviceRegisterRequest(value: unknown): value is DeviceRegisterRequest {
+  if (!isRecord(value)) {
+    return false;
+  }
+
+  return (
+    isNonEmptyString(value.vaultId) &&
+    isNonEmptyString(value.deviceFingerprint) &&
+    isNonEmptyString(value.pluginVersion)
+  );
+}
+
+function isAssignmentCoachRunRequest(value: unknown): value is AssignmentCoachRunRequest {
+  if (!isRecord(value)) {
+    return false;
+  }
+
+  if (
+    typeof value.assignmentPath !== "string" ||
+    typeof value.assignmentTitle !== "string" ||
+    typeof value.assignmentBody !== "string" ||
+    !Array.isArray(value.relatedContext) ||
+    !isRecord(value.localMetadata)
+  ) {
+    return false;
+  }
+
+  const metadata = value.localMetadata;
+
+  return (
+    value.relatedContext.every(
+      (item) =>
+        isRecord(item) &&
+        typeof item.path === "string" &&
+        typeof item.title === "string" &&
+        typeof item.body === "string"
+    ) &&
+    hasValidTaskCounts(metadata.taskCount, metadata.completedTaskCount) &&
+    Array.isArray(metadata.tags) &&
+    metadata.tags.every((tag) => typeof tag === "string")
+  );
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+function hasValidTaskCounts(taskCount: unknown, completedTaskCount: unknown): boolean {
+  return (
+    Number.isInteger(taskCount) &&
+    typeof taskCount === "number" &&
+    taskCount >= 0 &&
+    Number.isInteger(completedTaskCount) &&
+    typeof completedTaskCount === "number" &&
+    completedTaskCount >= 0 &&
+    completedTaskCount <= taskCount
+  );
 }
 
 function getAssignmentScopeError(assignmentPath: string): { statusCode: 400 | 403; message: string } | null {

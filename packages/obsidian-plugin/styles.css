@@ -1,3 +1,105 @@
 .pbg-dashboard {
   padding: 16px;
+  max-width: 980px;
+}
+
+.pbg-dashboard__header {
+  margin-bottom: 18px;
+}
+
+.pbg-dashboard__header h1 {
+  margin-bottom: 4px;
+}
+
+.pbg-dashboard__header p,
+.pbg-dashboard__section p {
+  color: var(--text-muted);
+}
+
+.pbg-dashboard__section {
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 8px;
+  margin-bottom: 14px;
+  padding: 14px;
+}
+
+.pbg-dashboard__section h2 {
+  font-size: 1rem;
+  margin: 0 0 10px;
+}
+
+.pbg-dashboard__focus h3 {
+  margin: 0 0 6px;
+}
+
+.pbg-dashboard__focus small {
+  color: var(--text-faint);
+}
+
+.pbg-dashboard__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.pbg-dashboard__metrics,
+.pbg-dashboard__grid,
+.pbg-dashboard__heatmap {
+  display: grid;
+  gap: 10px;
+}
+
+.pbg-dashboard__metrics {
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+}
+
+.pbg-dashboard__grid {
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+}
+
+.pbg-dashboard__metric,
+.pbg-dashboard__heatmap-cell {
+  background: var(--background-secondary);
+  border-radius: 8px;
+  padding: 10px;
+}
+
+.pbg-dashboard__metric strong,
+.pbg-dashboard__heatmap-cell strong {
+  display: block;
+  font-size: 1.25rem;
+}
+
+.pbg-dashboard__metric span,
+.pbg-dashboard__heatmap-cell span {
+  color: var(--text-muted);
+}
+
+.pbg-dashboard__progress {
+  background: var(--background-secondary);
+  border-radius: 999px;
+  height: 10px;
+  overflow: hidden;
+}
+
+.pbg-dashboard__progress-bar {
+  background: var(--interactive-accent);
+  height: 100%;
+}
+
+.pbg-dashboard__list {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.pbg-dashboard__list li {
+  margin-bottom: 6px;
+}
+
+.pbg-dashboard__heatmap {
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+}
+
+.pbg-dashboard__heatmap-cell.is-intensity-1 {
+  border-left: 4px solid var(--interactive-accent);
 }

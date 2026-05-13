@@ -5,7 +5,7 @@ import type {
   AssignmentCoachRunRequest,
   AssignmentCoachRunResponse
 } from "@pbg/shared/workflowContracts";
-import { buildApp, POC_REFRESH_TOKEN } from "../src/app.js";
+import { buildApp, POC_REFRESH_TOKEN, type AuthService } from "../src/app.js";
 
 async function getAccessToken(): Promise<string> {
   const app = buildApp();
@@ -117,6 +117,61 @@ describe("gateway API routes", () => {
         }
       ],
       courseManifestVersion: "2026-05-12-poc"
+    });
+
+    await app.close();
+  });
+
+  it("returns dashboard state for the authenticated student session", async () => {
+    const authService: AuthService = {
+      login: async (input) => ({
+        accessToken: "session-student-access-token",
+        refreshToken: "session-student-refresh-token",
+        student: {
+          studentId: "00000000-0000-4000-8000-000000000202",
+          displayName: "Session Student",
+          tier: "ultra",
+          standingGood: true,
+          creditBalance: 999
+        },
+        device: {
+          deviceId: "00000000-0000-4000-8000-000000000303",
+          vaultId: input.vaultId,
+          status: "active"
+        }
+      })
+    };
+    const app = buildApp({ authService });
+
+    const loginResponse = await app.inject({
+      method: "POST",
+      url: API_ROUTES.authLogin,
+      payload: {
+        username: "session_student",
+        password: "session-password",
+        vaultId: "sha256-vault-id",
+        deviceFingerprint: "sha256-device-fingerprint",
+        pluginVersion: "0.1.0"
+      }
+    });
+    const loginBody = loginResponse.json<{ accessToken: string }>();
+
+    const response = await app.inject({
+      method: "GET",
+      url: API_ROUTES.dashboardMe,
+      headers: {
+        authorization: `Bearer ${loginBody.accessToken}`
+      }
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      student: {
+        studentId: "00000000-0000-4000-8000-000000000202",
+        tier: "ultra",
+        standingGood: true,
+        creditBalance: 999
+      }
     });
 
     await app.close();
@@ -239,6 +294,63 @@ describe("gateway API routes", () => {
     await app.close();
   });
 
+  it("rejects malformed assignment coach preview requests at runtime", async () => {
+    const app = buildApp();
+
+    const response = await app.inject({
+      method: "POST",
+      url: API_ROUTES.assignmentCoachPreview,
+      headers: await authHeaders(),
+      payload: {
+        assignmentPath: "PBG/Assignments/connect-first-workflow.md",
+        assignmentTitle: "Connect First Workflow",
+        assignmentBody: "# Connect First Workflow\n",
+        relatedContext: "not-an-array",
+        localMetadata: {
+          taskCount: 0,
+          completedTaskCount: 0,
+          tags: []
+        }
+      }
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({
+      error: "Invalid Assignment Coach request"
+    });
+    expect(response.body).not.toContain("Connect First Workflow\n");
+
+    await app.close();
+  });
+
+  it("rejects assignment coach requests with invalid task count invariants", async () => {
+    const app = buildApp();
+
+    const response = await app.inject({
+      method: "POST",
+      url: API_ROUTES.assignmentCoachPreview,
+      headers: await authHeaders(),
+      payload: {
+        assignmentPath: "PBG/Assignments/connect-first-workflow.md",
+        assignmentTitle: "Connect First Workflow",
+        assignmentBody: "# Connect First Workflow\n",
+        relatedContext: [],
+        localMetadata: {
+          taskCount: 1,
+          completedTaskCount: 2,
+          tags: []
+        }
+      }
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({
+      error: "Invalid Assignment Coach request"
+    });
+
+    await app.close();
+  });
+
   it.each([
     ["Private/journal.md", 403],
     ["PBG/Assignments/journal.txt", 400]
@@ -312,6 +424,52 @@ describe("gateway API routes", () => {
       "Sync progress back through the gateway when ready."
     ]);
     expect(body.result.markdown).toContain("Run ID: poc-assignment-coach-run");
+
+    await app.close();
+  });
+
+  it("enforces injected workflow authorization and audits denials without vault bodies", async () => {
+    const events: unknown[] = [];
+    const app = buildApp({
+      workflowGuard: {
+        authorize: async () => ({
+          allowed: false,
+          statusCode: 402,
+          reason: "insufficient_credits",
+          message: "Insufficient credits"
+        })
+      },
+      auditSink: {
+        capture: async (event) => {
+          events.push(event);
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: API_ROUTES.assignmentCoachRun,
+      headers: await authHeaders(),
+      payload: {
+        assignmentPath: "PBG/Assignments/connect-first-workflow.md",
+        assignmentTitle: "Connect First Workflow",
+        assignmentBody: "# secret assignment body\n",
+        relatedContext: [],
+        localMetadata: {
+          taskCount: 1,
+          completedTaskCount: 0,
+          tags: []
+        }
+      }
+    });
+
+    expect(response.statusCode).toBe(402);
+    expect(response.json()).toEqual({
+      error: "Insufficient credits"
+    });
+    expect(JSON.stringify(events)).toContain("workflow.denied");
+    expect(JSON.stringify(events)).toContain("insufficient_credits");
+    expect(JSON.stringify(events)).not.toContain("secret assignment body");
 
     await app.close();
   });
@@ -422,6 +580,34 @@ describe("gateway API routes", () => {
     expect(response.statusCode).toBe(401);
     expect(response.json()).toEqual({
       error: "Missing or invalid bearer token"
+    });
+
+    await app.close();
+  });
+
+  it("rate limits repeated requests by route and client", async () => {
+    const app = buildApp({
+      rateLimit: {
+        max: 1,
+        windowMs: 60_000
+      }
+    });
+
+    const firstResponse = await app.inject({
+      method: "GET",
+      url: API_ROUTES.dashboardMe,
+      headers: await authHeaders()
+    });
+    const secondResponse = await app.inject({
+      method: "GET",
+      url: API_ROUTES.dashboardMe,
+      headers: await authHeaders()
+    });
+
+    expect(firstResponse.statusCode).toBe(200);
+    expect(secondResponse.statusCode).toBe(429);
+    expect(secondResponse.json()).toEqual({
+      error: "Rate limit exceeded"
     });
 
     await app.close();
