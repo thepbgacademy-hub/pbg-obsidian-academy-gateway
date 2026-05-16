@@ -15,6 +15,24 @@ describe("PbgGatewayApiClient", () => {
     expect(requestedUrls).toEqual(["http://localhost:8787/api/courses/manifest"]);
   });
 
+  it("uses a safe default fetch wrapper without requiring a bound method reference", async () => {
+    const originalFetch = globalThis.fetch;
+    const requestedUrls: string[] = [];
+    globalThis.fetch = (async (input) => {
+      requestedUrls.push(input.toString());
+      return new Response(JSON.stringify({ manifestVersion: "test", files: [] }));
+    }) as typeof fetch;
+
+    try {
+      const client = new PbgGatewayApiClient("http://localhost:8787/base-path");
+      await client.getCourseManifest();
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+
+    expect(requestedUrls).toEqual(["http://localhost:8787/api/courses/manifest"]);
+  });
+
   it("sends bearer authorization for protected requests when an access token exists", async () => {
     const requests: Array<{ url: string; init?: RequestInit }> = [];
     const client = new PbgGatewayApiClient(
@@ -255,6 +273,106 @@ describe("PbgGatewayApiClient", () => {
     expect(requests[0]).toMatchObject({
       url: "http://localhost:8787/api/workflows/runs/poc-assignment-coach-run",
       init: {
+        headers: {
+          authorization: "Bearer short-lived-token"
+        }
+      }
+    });
+  });
+
+  it("fetches academy announcement items from the gateway", async () => {
+    const requests: Array<{ url: string; init?: RequestInit }> = [];
+    const client = new PbgGatewayApiClient(
+      "http://localhost:8787",
+      async (input, init) => {
+        requests.push({ url: input.toString(), init });
+        return new Response(
+          JSON.stringify({
+            items: [
+              {
+                id: "academy-announcement-orientation",
+                label: "Academy Update",
+                text: "Orientation week resources are now live in your PBG vault.",
+                href: "https://github.com/thepbgacademy-hub/pbg-obsidian-academy-gateway",
+                publishedAt: "2026-05-15T00:00:00.000Z",
+                expiresAt: null,
+                isActive: true
+              }
+            ]
+          })
+        );
+      },
+      "short-lived-token"
+    );
+
+    const result = await client.getDashboardAnnouncements();
+
+    expect(result.items).toHaveLength(1);
+    expect(result.items[0]?.id).toBe("academy-announcement-orientation");
+    expect(requests).toHaveLength(1);
+    expect(requests[0]).toMatchObject({
+      url: "http://localhost:8787/api/dashboard/announcements",
+      init: {
+        headers: {
+          authorization: "Bearer short-lived-token"
+        }
+      }
+    });
+  });
+
+  it("fetches the discussion badge status from the gateway", async () => {
+    const requests: Array<{ url: string; init?: RequestInit }> = [];
+    const client = new PbgGatewayApiClient(
+      "http://localhost:8788",
+      async (input, init) => {
+        requests.push({ url: input.toString(), init });
+        return new Response(
+          JSON.stringify({
+            label: "PBG Discussion",
+            href: "https://t.me/+Xpdv7ztBFFc1MGVh",
+            unreadCount: 3
+          })
+        );
+      },
+      "short-lived-token"
+    );
+
+    const result = await client.getDiscussionStatus();
+
+    expect(result.unreadCount).toBe(3);
+    expect(requests[0]).toMatchObject({
+      url: "http://localhost:8788/api/lounge/discussion-status",
+      init: {
+        headers: {
+          authorization: "Bearer short-lived-token"
+        }
+      }
+    });
+  });
+
+  it("marks the discussion badge seen through the gateway", async () => {
+    const requests: Array<{ url: string; init?: RequestInit }> = [];
+    const client = new PbgGatewayApiClient(
+      "http://localhost:8788",
+      async (input, init) => {
+        requests.push({ url: input.toString(), init });
+        return new Response(
+          JSON.stringify({
+            ok: true,
+            unreadCount: 0
+          })
+        );
+      },
+      "short-lived-token"
+    );
+
+    const result = await client.markDiscussionSeen();
+
+    expect(result.ok).toBe(true);
+    expect(requests[0]).toMatchObject({
+      url: "http://localhost:8788/api/lounge/discussion-seen",
+      init: {
+        method: "POST",
         headers: {
           authorization: "Bearer short-lived-token"
         }

@@ -1,0 +1,230 @@
+{
+  "name": "PBG Discussion Counter",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 30
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -1120,
+        -300
+      ],
+      "id": "588ce7a5-1207-42f4-960e-1a2442321849",
+      "name": "Poll Discussion Every 30 Minutes"
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "pbg-discussion-refresh-20260516-7c2d0c5a",
+        "responseMode": "lastNode",
+        "responseData": "firstEntryJson",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -1120,
+        -120
+      ],
+      "id": "d66c1359-b2ca-4c93-a90e-5fa3fe235739",
+      "name": "Discussion Refresh Webhook",
+      "webhookId": "pbg-discussion-refresh-20260516-7c2d0c5a"
+    },
+    {
+      "parameters": {
+        "jsCode": "const state = $getWorkflowStaticData('global');\nstate.groupTitle = state.groupTitle ?? 'PBG Discussion';\nstate.groupHref = state.groupHref ?? 'https://t.me/+Xpdv7ztBFFc1MGVh';\nstate.latestSequence = Number.isFinite(state.latestSequence) ? state.latestSequence : 0;\nstate.seenByStudent = state.seenByStudent && typeof state.seenByStudent === 'object' ? state.seenByStudent : {};\nstate.chatId = state.chatId ?? null;\nstate.telegramOffset = Number.isFinite(state.telegramOffset) ? state.telegramOffset : 0;\n\nconst triggerNode = $execution.trigger?.node ?? '';\nconst source = triggerNode === 'Discussion Refresh Webhook' ? 'manual-refresh' : 'schedule';\n\nreturn [{\n  json: {\n    source,\n    offset: state.telegramOffset,\n    groupTitle: state.groupTitle,\n    latestSequence: state.latestSequence,\n    chatId: state.chatId\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -820,
+        -210
+      ],
+      "id": "f989da1b-f72d-4a3d-bc0d-c00aef4a511f",
+      "name": "Prepare Telegram Poll"
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://api.telegram.org/bot__PBG_TELEGRAM_BOT_TOKEN__/getUpdates",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "offset",
+              "value": "={{ $json.offset }}"
+            },
+            {
+              "name": "limit",
+              "value": "100"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -560,
+        -210
+      ],
+      "id": "43379eb7-df76-4810-8484-e52fc2f8e91f",
+      "name": "Telegram Get Updates"
+    },
+    {
+      "parameters": {
+        "jsCode": "const state = $getWorkflowStaticData('global');\nstate.groupTitle = state.groupTitle ?? 'PBG Discussion';\nstate.groupHref = state.groupHref ?? 'https://t.me/+Xpdv7ztBFFc1MGVh';\nstate.latestSequence = Number.isFinite(state.latestSequence) ? state.latestSequence : 0;\nstate.seenByStudent = state.seenByStudent && typeof state.seenByStudent === 'object' ? state.seenByStudent : {};\nstate.chatId = Number.isFinite(state.chatId) ? state.chatId : -1002059446209;\nstate.telegramOffset = Number.isFinite(state.telegramOffset) ? state.telegramOffset : 0;\n\nconst source = $('Prepare Telegram Poll').first().json;\nconst payload = $json;\nif (!payload.ok || !Array.isArray(payload.result)) {\n  throw new Error('Telegram getUpdates returned an invalid payload');\n}\n\nlet matchedCount = 0;\nfor (const update of payload.result) {\n  const updateId = typeof update.update_id === 'number' ? update.update_id : null;\n  if (updateId !== null) {\n    state.telegramOffset = Math.max(state.telegramOffset, updateId + 1);\n  }\n\n  const message = update.message ?? update.channel_post ?? update.edited_message ?? null;\n  if (!message?.chat) {\n    continue;\n  }\n\n  const chat = message.chat;\n  const chatId = typeof chat.id === 'number' ? chat.id : null;\n  const chatType = typeof chat.type === 'string' ? chat.type : '';\n  const title = typeof chat.title === 'string' ? chat.title.trim() : '';\n  const isGroupLike = chatType === 'group' || chatType === 'supergroup';\n  const bootstrapMatch = state.chatId === null && isGroupLike && !message.from?.is_bot;\n  const matchesKnownChat = chatId !== null && chatId === state.chatId;\n  const isTargetChat = matchesKnownChat || bootstrapMatch;\n  if (!isTargetChat) {\n    continue;\n  }\n\n  if (state.chatId === null && chatId !== null) {\n    state.chatId = chatId;\n  }\n\n  if (message.from?.is_bot) {\n    continue;\n  }\n\n  state.latestSequence += 1;\n  matchedCount += 1;\n  state.lastMessageId = typeof message.message_id === 'number' ? message.message_id : state.lastMessageId ?? null;\n  state.lastMessageDate = typeof message.date === 'number' ? message.date : state.lastMessageDate ?? null;\n  state.lastPreview = typeof message.text === 'string' ? message.text.slice(0, 160) : null;\n  state.lastChatTitle = title || state.lastChatTitle || null;\n  state.lastChatType = chatType || state.lastChatType || null;\n}\n\nreturn [{\n  json: {\n    ok: true,\n    source: source.source,\n    matchedCount,\n    latestSequence: state.latestSequence,\n    chatId: state.chatId,\n    offset: state.telegramOffset,\n    lastMessageId: state.lastMessageId ?? null,\n    lastChatTitle: state.lastChatTitle || null,\n    lastChatType: state.lastChatType || null\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -300,
+        -210
+      ],
+      "id": "3fb49f9d-7073-4e80-8f92-5c54c7f7bc6b",
+      "name": "Process Telegram Updates"
+    },
+    {
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "pbg-discussion-status-20260516-43d913b2",
+        "responseMode": "lastNode",
+        "responseData": "firstEntryJson",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -1120,
+        120
+      ],
+      "id": "c245f6e4-d741-47a7-ab03-b19bd2ba13a6",
+      "name": "Discussion Status Webhook",
+      "webhookId": "pbg-discussion-status-20260516-43d913b2"
+    },
+    {
+      "parameters": {
+        "jsCode": "const state = $getWorkflowStaticData('global');\nstate.groupTitle = state.groupTitle ?? 'PBG Discussion';\nstate.groupHref = state.groupHref ?? 'https://t.me/+Xpdv7ztBFFc1MGVh';\nstate.latestSequence = Number.isFinite(state.latestSequence) ? state.latestSequence : 0;\nstate.seenByStudent = state.seenByStudent && typeof state.seenByStudent === 'object' ? state.seenByStudent : {};\n\nconst query = $json.query ?? {};\nconst studentId = typeof query.studentId === 'string' ? query.studentId.trim() : '';\nif (!studentId) {\n  return [{ json: { label: state.groupTitle, href: state.groupHref, unreadCount: 0, error: 'missing_student_id' } }];\n}\n\nconst seenMarker = Number.isFinite(state.seenByStudent[studentId]) ? state.seenByStudent[studentId] : 0;\nconst unreadCount = Math.max(state.latestSequence - seenMarker, 0);\n\nreturn [{\n  json: {\n    label: state.groupTitle,\n    href: state.groupHref,\n    unreadCount\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -820,
+        120
+      ],
+      "id": "0ba5c0cb-39b9-4f2a-98be-35024cb44d20",
+      "name": "Build Discussion Status"
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "pbg-discussion-seen-20260516-d1be8fd0",
+        "responseMode": "lastNode",
+        "responseData": "firstEntryJson",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -1120,
+        320
+      ],
+      "id": "ca50a15d-b296-4666-a73c-d1126ef8982c",
+      "name": "Discussion Seen Webhook",
+      "webhookId": "pbg-discussion-seen-20260516-d1be8fd0"
+    },
+    {
+      "parameters": {
+        "jsCode": "const state = $getWorkflowStaticData('global');\nstate.groupTitle = state.groupTitle ?? 'PBG Discussion';\nstate.groupHref = state.groupHref ?? 'https://t.me/+Xpdv7ztBFFc1MGVh';\nstate.latestSequence = Number.isFinite(state.latestSequence) ? state.latestSequence : 0;\nstate.seenByStudent = state.seenByStudent && typeof state.seenByStudent === 'object' ? state.seenByStudent : {};\n\nconst body = $json.body ?? {};\nconst studentId = typeof body.studentId === 'string' ? body.studentId.trim() : '';\nif (!studentId) {\n  return [{ json: { ok: true, unreadCount: state.latestSequence, error: 'missing_student_id' } }];\n}\n\nstate.seenByStudent[studentId] = state.latestSequence;\nreturn [{\n  json: {\n    ok: true,\n    unreadCount: 0\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -820,
+        320
+      ],
+      "id": "24ff1a0d-f640-4f2c-a88f-0d1aa35fbd5f",
+      "name": "Mark Discussion Seen"
+    }
+  ],
+  "connections": {
+    "Poll Discussion Every 30 Minutes": {
+      "main": [
+        [
+          {
+            "node": "Prepare Telegram Poll",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Discussion Refresh Webhook": {
+      "main": [
+        [
+          {
+            "node": "Prepare Telegram Poll",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Telegram Poll": {
+      "main": [
+        [
+          {
+            "node": "Telegram Get Updates",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram Get Updates": {
+      "main": [
+        [
+          {
+            "node": "Process Telegram Updates",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Discussion Status Webhook": {
+      "main": [
+        [
+          {
+            "node": "Build Discussion Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Discussion Seen Webhook": {
+      "main": [
+        [
+          {
+            "node": "Mark Discussion Seen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

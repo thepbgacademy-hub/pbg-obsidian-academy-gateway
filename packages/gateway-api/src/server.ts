@@ -5,6 +5,8 @@ export type ServerEnvironment = {
   HOST?: string;
   NODE_ENV?: string;
   PBG_ALLOW_PUBLIC_POC_AUTH?: string;
+  PBG_DISCUSSION_STATUS_URL?: string;
+  PBG_DISCUSSION_SEEN_URL?: string;
 };
 
 export function resolveServerListenOptions(env: ServerEnvironment): { port: number; host: string } {

@@ -12,8 +12,36 @@ export const API_ROUTES = {
   authLogout: "/api/auth/logout",
   deviceRegister: "/api/devices/register",
   dashboardMe: "/api/dashboard/me",
+  dashboardAnnouncements: "/api/dashboard/announcements",
+  discussionStatus: "/api/lounge/discussion-status",
+  discussionSeen: "/api/lounge/discussion-seen",
   courseManifest: "/api/courses/manifest",
   assignmentCoachPreview: "/api/workflows/assignment-coach/preview",
   assignmentCoachRun: "/api/workflows/assignment-coach/run",
   workflowRun: "/api/workflows/runs/:runId"
 } as const;
+
+export interface DashboardAnnouncementItem {
+  id: string;
+  label: string;
+  text: string;
+  href: string;
+  publishedAt: string;
+  expiresAt: string | null;
+  isActive: boolean;
+}
+
+export interface DashboardAnnouncementsPayload {
+  items: DashboardAnnouncementItem[];
+}
+
+export interface DiscussionStatusPayload {
+  label: string;
+  href: string;
+  unreadCount: number;
+}
+
+export interface DiscussionSeenResponse {
+  ok: true;
+  unreadCount: number;
+}

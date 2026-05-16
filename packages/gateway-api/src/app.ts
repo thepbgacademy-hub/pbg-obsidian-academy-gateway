@@ -1,5 +1,10 @@
 import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from "fastify";
-import { API_ROUTES } from "@pbg/shared/contracts";
+import {
+  API_ROUTES,
+  type DashboardAnnouncementsPayload,
+  type DiscussionSeenResponse,
+  type DiscussionStatusPayload
+} from "@pbg/shared/contracts";
 import { createPocCourseManifest } from "@pbg/shared/courseManifest";
 import type {
   AssignmentCoachPreviewResponse,
@@ -15,6 +20,22 @@ const POC_USERNAME = "pbg_test_student";
 const POC_PASSWORD = "pbg-test-password";
 export const POC_REFRESH_TOKEN = "poc-refresh-token";
 const POC_ACCESS_TOKEN = "short-lived-token";
+const POC_DISCUSSION_LABEL = "PBG Discussion";
+const POC_DISCUSSION_HREF = "https://t.me/+Xpdv7ztBFFc1MGVh";
+const POC_DISCUSSION_LATEST_MARKER = 3;
+const POC_DASHBOARD_ANNOUNCEMENTS: DashboardAnnouncementsPayload = {
+  items: [
+    {
+      id: "academy-announcement-orientation",
+      label: "Academy Update",
+      text: "Orientation week resources are now live in your PBG vault.",
+      href: "https://github.com/thepbgacademy-hub/pbg-obsidian-academy-gateway",
+      publishedAt: "2026-05-15T00:00:00.000Z",
+      expiresAt: null,
+      isActive: true
+    }
+  ]
+};
 
 export type LoginRequest = {
   username: string;
@@ -109,10 +130,16 @@ export interface AuditSink {
   capture(event: AuditEvent): Promise<void> | void;
 }
 
+export interface DiscussionStateService {
+  getStatus(studentId: string): Promise<DiscussionStatusPayload> | DiscussionStatusPayload;
+  markSeen(studentId: string): Promise<DiscussionSeenResponse> | DiscussionSeenResponse;
+}
+
 export interface AppServices {
   authService?: AuthService;
   sessionService?: SessionService;
   deviceRegistrationService?: DeviceRegistrationService;
+  discussionState?: DiscussionStateService;
   workflowGuard?: WorkflowGuard;
   auditSink?: AuditSink;
   rateLimit?: {
@@ -241,6 +268,83 @@ function createPocWorkflowGuard(): WorkflowGuard {
   };
 }
 
+function createPocDiscussionState(): DiscussionStateService {
+  const seenMarkerByStudentId = new Map<string, number>();
+
+  return {
+    getStatus: (studentId) => {
+      const seenMarker = seenMarkerByStudentId.get(studentId) ?? 0;
+
+      return {
+        label: POC_DISCUSSION_LABEL,
+        href: POC_DISCUSSION_HREF,
+        unreadCount: Math.max(POC_DISCUSSION_LATEST_MARKER - seenMarker, 0)
+      };
+    },
+    markSeen: (studentId) => {
+      seenMarkerByStudentId.set(studentId, POC_DISCUSSION_LATEST_MARKER);
+
+      return {
+        ok: true,
+        unreadCount: 0
+      };
+    }
+  };
+}
+
+type RemoteDiscussionConfig = {
+  statusUrl: string;
+  seenUrl: string;
+};
+
+function getRemoteDiscussionConfig(env: NodeJS.ProcessEnv): RemoteDiscussionConfig | null {
+  const statusUrl = env.PBG_DISCUSSION_STATUS_URL?.trim();
+  const seenUrl = env.PBG_DISCUSSION_SEEN_URL?.trim();
+
+  if (!statusUrl || !seenUrl) {
+    return null;
+  }
+
+  return { statusUrl, seenUrl };
+}
+
+function createRemoteDiscussionState(config: RemoteDiscussionConfig): DiscussionStateService {
+  return {
+    getStatus: async (studentId) => {
+      const url = new URL(config.statusUrl);
+      url.searchParams.set("studentId", studentId);
+
+      const response = await fetch(url, {
+        headers: {
+          accept: "application/json"
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error(`Discussion status request failed with ${response.status}`);
+      }
+
+      return (await response.json()) as DiscussionStatusPayload;
+    },
+    markSeen: async (studentId) => {
+      const response = await fetch(config.seenUrl, {
+        method: "POST",
+        headers: {
+          accept: "application/json",
+          "content-type": "application/json"
+        },
+        body: JSON.stringify({ studentId })
+      });
+
+      if (!response.ok) {
+        throw new Error(`Discussion seen request failed with ${response.status}`);
+      }
+
+      return (await response.json()) as DiscussionSeenResponse;
+    }
+  };
+}
+
 export function buildApp(services: AppServices = {}): FastifyInstance {
   const app = Fastify({
     logger: false
@@ -249,12 +353,29 @@ export function buildApp(services: AppServices = {}): FastifyInstance {
   const sessionService = services.sessionService ?? createInMemoryPocSessionService();
   const deviceRegistrationService = services.deviceRegistrationService ?? createPocDeviceRegistrationService();
   const workflowGuard = services.workflowGuard ?? createPocWorkflowGuard();
+  const remoteDiscussionConfig = getRemoteDiscussionConfig(process.env);
+  const discussionState =
+    services.discussionState ??
+    (remoteDiscussionConfig
+      ? createRemoteDiscussionState(remoteDiscussionConfig)
+      : createPocDiscussionState());
   const auditSink = services.auditSink;
   const rateLimitBuckets = new Map<string, { count: number; resetAt: number }>();
 
   async function captureAudit(event: AuditEvent): Promise<void> {
     await auditSink?.capture(event);
   }
+
+  app.addHook("onSend", async (_request, reply, payload) => {
+    reply.header("Access-Control-Allow-Origin", "*");
+    reply.header("Access-Control-Allow-Headers", "authorization, content-type");
+    reply.header("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+    return payload;
+  });
+
+  app.options("/*", async (_request, reply) => {
+    await reply.code(204).send();
+  });
 
   app.addHook("onRequest", async (request, reply) => {
     if (!services.rateLimit) {
@@ -405,6 +526,16 @@ export function buildApp(services: AppServices = {}): FastifyInstance {
     ],
     courseManifestVersion: "2026-05-12-poc"
   }));
+
+  app.get(API_ROUTES.dashboardAnnouncements, { preHandler: requireAuth }, async () => POC_DASHBOARD_ANNOUNCEMENTS);
+
+  app.get(API_ROUTES.discussionStatus, { preHandler: requireAuth }, async (request) =>
+    discussionState.getStatus(request.authSession.student.studentId)
+  );
+
+  app.post(API_ROUTES.discussionSeen, { preHandler: requireAuth }, async (request) =>
+    discussionState.markSeen(request.authSession.student.studentId)
+  );
 
   app.get(API_ROUTES.courseManifest, { preHandler: requireAuth }, async () => createPocCourseManifest());
 

@@ -1,5 +1,10 @@
 import type { CourseManifest } from "@pbg/shared/courseManifest";
-import { API_ROUTES } from "@pbg/shared/contracts";
+import {
+  API_ROUTES,
+  type DashboardAnnouncementsPayload,
+  type DiscussionSeenResponse,
+  type DiscussionStatusPayload
+} from "@pbg/shared/contracts";
 import type {
   AssignmentCoachPreviewResponse,
   AssignmentCoachRunRequest,
@@ -32,16 +37,31 @@ export interface LoginResponse {
 }
 
 export type GatewayFetch = typeof fetch;
+const DEFAULT_GATEWAY_FETCH: GatewayFetch = (input, init) => globalThis.fetch(input, init);
 
 export class PbgGatewayApiClient {
   constructor(
     private readonly gatewayBaseUrl: string,
-    private readonly fetchImpl: GatewayFetch = fetch,
+    private readonly fetchImpl: GatewayFetch = DEFAULT_GATEWAY_FETCH,
     private accessToken?: string
   ) {}
 
   async getCourseManifest(): Promise<CourseManifest> {
     return this.requestJson<CourseManifest>(API_ROUTES.courseManifest);
+  }
+
+  async getDashboardAnnouncements(): Promise<DashboardAnnouncementsPayload> {
+    return this.requestJson<DashboardAnnouncementsPayload>(API_ROUTES.dashboardAnnouncements);
+  }
+
+  async getDiscussionStatus(): Promise<DiscussionStatusPayload> {
+    return this.requestJson<DiscussionStatusPayload>(API_ROUTES.discussionStatus);
+  }
+
+  async markDiscussionSeen(): Promise<DiscussionSeenResponse> {
+    return this.requestJson<DiscussionSeenResponse>(API_ROUTES.discussionSeen, {
+      method: "POST"
+    });
   }
 
   async login(input: LoginRequest): Promise<LoginResponse> {
@@ -134,5 +154,5 @@ function headersToObject(headers: HeadersInit | undefined): Record<string, strin
 }
 
 export async function getCourseManifest(gatewayBaseUrl: string, accessToken?: string): Promise<CourseManifest> {
-  return new PbgGatewayApiClient(gatewayBaseUrl, fetch, accessToken).getCourseManifest();
+  return new PbgGatewayApiClient(gatewayBaseUrl, DEFAULT_GATEWAY_FETCH, accessToken).getCourseManifest();
 }

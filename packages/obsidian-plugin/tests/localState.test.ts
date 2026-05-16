@@ -106,4 +106,16 @@ describe("local PBG state", () => {
       { label: "Workflow Results", count: 1, intensity: 1 }
     ]);
   });
+
+  it("keeps local classroom state intact for shell rendering", () => {
+    const state = computeLocalPbgDashboardState([
+      {
+        path: "PBG/Assignments/connect-first-workflow.md",
+        body: "# Connect First Workflow\n\n- [ ] Draft a workflow reflection\n"
+      }
+    ]);
+
+    expect(state.currentFocus?.title).toBe("Connect First Workflow");
+    expect(state.todos[0]?.text).toBe("Draft a workflow reflection");
+  });
 });

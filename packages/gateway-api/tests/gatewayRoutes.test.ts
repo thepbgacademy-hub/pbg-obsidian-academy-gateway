@@ -177,6 +177,83 @@ describe("gateway API routes", () => {
     await app.close();
   });
 
+  it("keeps discussion badge state isolated per authenticated student", async () => {
+    const authService: AuthService = {
+      login: async (input) => ({
+        accessToken: `${input.username}-access-token`,
+        refreshToken: `${input.username}-refresh-token`,
+        student: {
+          studentId:
+            input.username === "student_a"
+              ? "00000000-0000-4000-8000-000000000201"
+              : "00000000-0000-4000-8000-000000000202",
+          displayName: input.username,
+          tier: "pro",
+          standingGood: true,
+          creditBalance: 250
+        },
+        device: {
+          deviceId: "device-id",
+          vaultId: input.vaultId,
+          status: "active"
+        }
+      })
+    };
+    const app = buildApp({ authService });
+
+    const loginA = await app.inject({
+      method: "POST",
+      url: API_ROUTES.authLogin,
+      payload: {
+        username: "student_a",
+        password: "pw",
+        vaultId: "vault-a",
+        deviceFingerprint: "device-a",
+        pluginVersion: "0.1.0"
+      }
+    });
+    const loginB = await app.inject({
+      method: "POST",
+      url: API_ROUTES.authLogin,
+      payload: {
+        username: "student_b",
+        password: "pw",
+        vaultId: "vault-b",
+        deviceFingerprint: "device-b",
+        pluginVersion: "0.1.0"
+      }
+    });
+
+    const headersA = {
+      authorization: `Bearer ${loginA.json<{ accessToken: string }>().accessToken}`
+    };
+    const headersB = {
+      authorization: `Bearer ${loginB.json<{ accessToken: string }>().accessToken}`
+    };
+
+    await app.inject({
+      method: "POST",
+      url: API_ROUTES.discussionSeen,
+      headers: headersA
+    });
+
+    const statusA = await app.inject({
+      method: "GET",
+      url: API_ROUTES.discussionStatus,
+      headers: headersA
+    });
+    const statusB = await app.inject({
+      method: "GET",
+      url: API_ROUTES.discussionStatus,
+      headers: headersB
+    });
+
+    expect(statusA.json()).toMatchObject({ unreadCount: 0 });
+    expect(statusB.json()).toMatchObject({ unreadCount: 3 });
+
+    await app.close();
+  });
+
   it("rejects unauthenticated dashboard requests", async () => {
     const app = buildApp();
 
@@ -609,6 +686,22 @@ describe("gateway API routes", () => {
     expect(secondResponse.json()).toEqual({
       error: "Rate limit exceeded"
     });
+
+    await app.close();
+  });
+
+  it("returns CORS headers for plugin-facing routes", async () => {
+    const app = buildApp();
+
+    const response = await app.inject({
+      method: "OPTIONS",
+      url: API_ROUTES.courseManifest
+    });
+
+    expect(response.statusCode).toBe(204);
+    expect(response.headers["access-control-allow-origin"]).toBe("*");
+    expect(response.headers["access-control-allow-headers"]).toContain("authorization");
+    expect(response.headers["access-control-allow-methods"]).toContain("GET");
 
     await app.close();
   });

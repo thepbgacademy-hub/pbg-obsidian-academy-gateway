@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
   DEFAULT_PLUGIN_SETTINGS,
+  normalizeDashboardPalette,
   normalizeGatewayBaseUrl,
   normalizePluginSettings,
-  updateGatewayBaseUrl
+  updateDashboardPalette,
+  updateGatewayBaseUrl,
+  updateSessionTokens
 } from "../src/settings.js";
 
 describe("plugin settings", () => {
@@ -25,12 +28,16 @@ describe("plugin settings", () => {
       normalizePluginSettings({
         gatewayBaseUrl: "http://localhost:8788",
         accessToken: "access-token",
-        refreshToken: "refresh-token"
+        refreshToken: "refresh-token",
+        academyUsername: "pbg_test_student",
+        dashboardPalette: "obsidian-native"
       })
     ).toEqual({
       gatewayBaseUrl: "http://localhost:8788",
       accessToken: "access-token",
-      refreshToken: "refresh-token"
+      refreshToken: "refresh-token",
+      academyUsername: "pbg_test_student",
+      dashboardPalette: "obsidian-native"
     });
   });
 
@@ -40,14 +47,67 @@ describe("plugin settings", () => {
         {
           gatewayBaseUrl: "http://localhost:8787",
           accessToken: "access-token",
-          refreshToken: "refresh-token"
+          refreshToken: "refresh-token",
+          academyUsername: "pbg_test_student",
+          dashboardPalette: "obsidian-native"
         },
         " http://localhost:8788/// "
       )
     ).toEqual({
+        gatewayBaseUrl: "http://localhost:8788",
+        accessToken: "access-token",
+        refreshToken: "refresh-token",
+        academyUsername: "pbg_test_student",
+        dashboardPalette: "obsidian-native"
+      });
+  });
+
+  it("updates session tokens without losing the normalized gateway URL", () => {
+    expect(
+      updateSessionTokens(
+        {
+          gatewayBaseUrl: "http://localhost:8788",
+          academyUsername: "pbg_test_student",
+          dashboardPalette: "hermes-teal"
+        },
+        {
+          accessToken: "access-token",
+          refreshToken: "refresh-token",
+          academyUsername: "pbg_test_student"
+        }
+      )
+    ).toEqual({
+        gatewayBaseUrl: "http://localhost:8788",
+        accessToken: "access-token",
+        refreshToken: "refresh-token",
+        academyUsername: "pbg_test_student",
+        dashboardPalette: "hermes-teal"
+      });
+  });
+
+  it("defaults the dashboard palette to PBG Teal", () => {
+    expect(normalizeDashboardPalette(undefined)).toBe("hermes-teal");
+    expect(normalizeDashboardPalette("something-else")).toBe("hermes-teal");
+  });
+
+  it("updates the dashboard palette without losing session state", () => {
+    expect(
+      updateDashboardPalette(
+        {
+          gatewayBaseUrl: "http://localhost:8788",
+          accessToken: "access-token",
+          refreshToken: "refresh-token",
+          academyUsername: "pbg_test_student",
+          dashboardPalette: "hermes-teal"
+        },
+        "obsidian-native"
+      )
+    ).toEqual({
       gatewayBaseUrl: "http://localhost:8788",
       accessToken: "access-token",
-      refreshToken: "refresh-token"
+      refreshToken: "refresh-token",
+      academyUsername: "pbg_test_student",
+      dashboardPalette: "obsidian-native"
     });
   });
 });

@@ -4,7 +4,11 @@ import { createContextPreviewMessage } from "./contextPreview.js";
 import { getManifestWritePlan } from "./courseSync.js";
 import { PbgDashboardView, VIEW_TYPE_PBG_DASHBOARD } from "./dashboardView.js";
 import { PBG_REQUIRED_PATHS } from "./onboarding.js";
-import { normalizePluginSettings, type PbgAcademyGatewaySettings } from "./settings.js";
+import {
+  normalizePluginSettings,
+  type PbgAcademyGatewaySettings,
+  updateDashboardPalette
+} from "./settings.js";
 import { PbgAcademyGatewaySettingTab } from "./settingsTab.js";
 import {
   getAssignmentCoachScopeNotice,
@@ -18,7 +22,14 @@ export default class PbgAcademyGatewayPlugin extends Plugin {
   async onload(): Promise<void> {
     await this.loadSettings();
 
-    this.registerView(VIEW_TYPE_PBG_DASHBOARD, (leaf) => new PbgDashboardView(leaf));
+    this.registerView(
+      VIEW_TYPE_PBG_DASHBOARD,
+      (leaf) =>
+        new PbgDashboardView(leaf, () => this.settings, async (palette) => {
+          this.settings = updateDashboardPalette(this.settings, palette);
+          await this.saveSettings();
+        })
+    );
     this.addSettingTab(new PbgAcademyGatewaySettingTab(this.app, this));
 
     this.addCommand({
@@ -57,7 +68,7 @@ export default class PbgAcademyGatewayPlugin extends Plugin {
 
     try {
       new Notice(createContextPreviewMessage(1, 0));
-      const client = new PbgGatewayApiClient(this.settings.gatewayBaseUrl, fetch, this.settings.accessToken);
+      const client = new PbgGatewayApiClient(this.settings.gatewayBaseUrl, undefined, this.settings.accessToken);
       const resultPath = await runAssignmentCoachForFile({
         file,
         vault: this.app.vault,

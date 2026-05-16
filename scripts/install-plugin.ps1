@@ -25,9 +25,12 @@ if (-not $ConfirmInstall -and -not $WhatIfPreference) {
 
 if ($PSCmdlet.ShouldProcess($VaultPluginRoot, "Install PBG Academy Gateway plugin")) {
   New-Item -ItemType Directory -Force -Path $VaultPluginRoot | Out-Null
+  $VaultAssetRoot = Join-Path $VaultPluginRoot "assets"
+  New-Item -ItemType Directory -Force -Path $VaultAssetRoot | Out-Null
   Copy-Item -Force (Join-Path $PluginRoot "manifest.json") $VaultPluginRoot
   Copy-Item -Force (Join-Path $PluginRoot "styles.css") $VaultPluginRoot
   Copy-Item -Force (Join-Path $PluginRoot "dist\main.js") $VaultPluginRoot
+  Copy-Item -Force (Join-Path $PluginRoot "assets\pbg-lion-logo.png") $VaultAssetRoot
 
   Write-Host "Installed PBG Academy Gateway plugin to $VaultPluginRoot"
 }
