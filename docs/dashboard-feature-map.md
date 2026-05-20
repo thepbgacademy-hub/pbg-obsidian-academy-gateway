@@ -114,6 +114,39 @@ Primary files:
 
 ## Main Workspace
 
+### Coach
+
+Behavior:
+
+- sits at the very bottom of the dashboard
+- provides a student-facing academy coaching surface
+- exposes visible fixed-cost action modes
+- keeps prompts/workflows/skills hidden from the student
+
+Current modes:
+
+- `Coach 2`
+- `Research`
+  - `Standard 5`
+  - `Deep 8`
+- `Reports`
+  - `Basic PDF 10`
+  - `Expanded PDF + MD 15`
+
+Data source:
+
+- gateway-backed status and action execution
+- local vault thread/report storage
+
+Primary files:
+
+- `C:\tmp\pbg-obsidian-academy-gateway-work\packages\obsidian-plugin\src\coachContracts.ts`
+- `C:\tmp\pbg-obsidian-academy-gateway-work\packages\obsidian-plugin\src\coachState.ts`
+- `C:\tmp\pbg-obsidian-academy-gateway-work\packages\obsidian-plugin\src\coachStorage.ts`
+- `C:\tmp\pbg-obsidian-academy-gateway-work\packages\obsidian-plugin\src\coachPanel.ts`
+- `C:\tmp\pbg-obsidian-academy-gateway-work\packages\obsidian-plugin\src\dashboardView.ts`
+- `C:\tmp\pbg-obsidian-academy-gateway-work\packages\gateway-api\src\app.ts`
+
 ### Current Focus
 
 Behavior:

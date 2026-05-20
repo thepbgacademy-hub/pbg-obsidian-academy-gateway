@@ -1,8 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type {
+  CoachPanelStatusPayload,
+  CoachRunRequest,
+  CoachRunResponse,
   DashboardAnnouncementsPayload,
   DiscussionSeenResponse,
-  DiscussionStatusPayload
+  DiscussionStatusPayload,
+  ProviderOption
 } from "../src/contracts.js";
 import { API_ROUTES, WORKFLOW_SLUGS } from "../src/contracts.js";
 
@@ -21,6 +25,12 @@ describe("shared contracts", () => {
 
   it("includes the discussion seen route", () => {
     expect(API_ROUTES.discussionSeen).toBe("/api/lounge/discussion-seen");
+  });
+
+  it("includes the coach routes", () => {
+    expect(API_ROUTES.coachStatus).toBe("/api/coach/status");
+    expect(API_ROUTES.coachRun).toBe("/api/coach/run");
+    expect(API_ROUTES.providerConnections).toBe("/api/providers/connections");
   });
 
   it("defines the Assignment Coach run route", () => {
@@ -58,5 +68,41 @@ describe("shared contracts", () => {
 
     expect(status.label).toBe("PBG Discussion");
     expect(seen.ok).toBe(true);
+  });
+
+  it("defines the coach payload shapes", () => {
+    const provider: ProviderOption = {
+      id: "openai",
+      label: "OpenAI",
+      recommended: true,
+      connected: true
+    };
+    const status: CoachPanelStatusPayload = {
+      providerOptions: [provider],
+      selectedProviderId: "openai",
+      creditBalance: 42,
+      contextLabel: "Context: Assignment + related academy materials",
+      currentThreadId: "assignment:connect-first-workflow",
+      blockingReason: null
+    };
+    const request: CoachRunRequest = {
+      mode: "coach",
+      variant: null,
+      prompt: "Help me understand the assignment",
+      contextType: "assignment",
+      contextId: "connect-first-workflow"
+    };
+    const response: CoachRunResponse = {
+      mode: "coach",
+      variant: null,
+      creditsDebited: 2,
+      message: "Here is your coaching answer.",
+      threadPath: "PBG/Coach Threads/assignment-connect-first-workflow.md",
+      reportArtifacts: []
+    };
+
+    expect(status.providerOptions[0]?.recommended).toBe(true);
+    expect(request.mode).toBe("coach");
+    expect(response.reportArtifacts).toHaveLength(0);
   });
 });

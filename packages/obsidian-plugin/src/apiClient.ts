@@ -1,6 +1,9 @@
 import type { CourseManifest } from "@pbg/shared/courseManifest";
 import {
   API_ROUTES,
+  type CoachPanelStatusPayload,
+  type CoachRunRequest,
+  type CoachRunResponse,
   type DashboardAnnouncementsPayload,
   type DiscussionSeenResponse,
   type DiscussionStatusPayload
@@ -56,6 +59,20 @@ export class PbgGatewayApiClient {
 
   async getDiscussionStatus(): Promise<DiscussionStatusPayload> {
     return this.requestJson<DiscussionStatusPayload>(API_ROUTES.discussionStatus);
+  }
+
+  async getCoachStatus(): Promise<CoachPanelStatusPayload> {
+    return this.requestJson<CoachPanelStatusPayload>(API_ROUTES.coachStatus);
+  }
+
+  async runCoach(payload: CoachRunRequest): Promise<CoachRunResponse> {
+    return this.requestJson<CoachRunResponse>(API_ROUTES.coachRun, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json"
+      },
+      body: JSON.stringify(payload)
+    });
   }
 
   async markDiscussionSeen(): Promise<DiscussionSeenResponse> {

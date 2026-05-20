@@ -1,9 +1,14 @@
 import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from "fastify";
 import {
   API_ROUTES,
+  type CoachPanelStatusPayload,
+  type CoachRunRequest,
+  type CoachRunResponse,
   type DashboardAnnouncementsPayload,
   type DiscussionSeenResponse,
-  type DiscussionStatusPayload
+  type DiscussionStatusPayload,
+  type ProviderOption,
+  type ReportArtifact
 } from "@pbg/shared/contracts";
 import { createPocCourseManifest } from "@pbg/shared/courseManifest";
 import type {
@@ -23,11 +28,18 @@ const POC_ACCESS_TOKEN = "short-lived-token";
 const POC_DISCUSSION_LABEL = "PBG Discussion";
 const POC_DISCUSSION_HREF = "https://t.me/+Xpdv7ztBFFc1MGVh";
 const POC_DISCUSSION_LATEST_MARKER = 3;
+const POC_PROVIDER_OPTIONS: ProviderOption[] = [
+  { id: "openai", label: "OpenAI", recommended: true, connected: true },
+  { id: "anthropic", label: "Anthropic API", recommended: false, connected: false },
+  { id: "grok", label: "Grok API", recommended: false, connected: false },
+  { id: "gemini", label: "Gemini API", recommended: false, connected: false },
+  { id: "openrouter", label: "OpenRouter", recommended: false, connected: false }
+];
 const POC_DASHBOARD_ANNOUNCEMENTS: DashboardAnnouncementsPayload = {
   items: [
     {
       id: "academy-announcement-orientation",
-      label: "Academy Update",
+      label: "Academy Announcement",
       text: "Orientation week resources are now live in your PBG vault.",
       href: "https://github.com/thepbgacademy-hub/pbg-obsidian-academy-gateway",
       publishedAt: "2026-05-15T00:00:00.000Z",
@@ -135,16 +147,84 @@ export interface DiscussionStateService {
   markSeen(studentId: string): Promise<DiscussionSeenResponse> | DiscussionSeenResponse;
 }
 
+export interface CoachStateService {
+  getStatus(student: AuthenticatedStudent): Promise<CoachPanelStatusPayload> | CoachPanelStatusPayload;
+  run(input: {
+    student: AuthenticatedStudent;
+    request: CoachRunRequest;
+  }): Promise<CoachRunResponse> | CoachRunResponse;
+}
+
 export interface AppServices {
   authService?: AuthService;
   sessionService?: SessionService;
   deviceRegistrationService?: DeviceRegistrationService;
   discussionState?: DiscussionStateService;
+  coachState?: CoachStateService;
   workflowGuard?: WorkflowGuard;
   auditSink?: AuditSink;
   rateLimit?: {
     max: number;
     windowMs: number;
+  };
+}
+
+function resolveCoachCredits(mode: CoachRunRequest["mode"], variant: CoachRunRequest["variant"]): number {
+  if (mode === "coach") {
+    return 2;
+  }
+
+  if (mode === "research") {
+    return variant === "deep" ? 8 : 5;
+  }
+
+  return variant === "expanded-pdf-md" ? 15 : 10;
+}
+
+function getCoachThreadPath(contextType: CoachRunRequest["contextType"], contextId: string): string {
+  return `PBG/Coach Threads/${contextType}-${contextId}.md`;
+}
+
+function buildCoachReportArtifacts(contextId: string, variant: CoachRunRequest["variant"]): ReportArtifact[] {
+  if (variant === "expanded-pdf-md") {
+    return [
+      {
+        kind: "expanded-pdf-md",
+        path: `PBG/Reports/${contextId}-expanded-report.pdf`
+      },
+      {
+        kind: "markdown-companion",
+        path: `PBG/Reports/${contextId}-expanded-report.md`
+      }
+    ];
+  }
+
+  return [
+    {
+      kind: "basic-pdf",
+      path: `PBG/Reports/${contextId}-basic-report.pdf`
+    }
+  ];
+}
+
+function createPocCoachState(): CoachStateService {
+  return {
+    getStatus: (student) => ({
+      providerOptions: POC_PROVIDER_OPTIONS,
+      selectedProviderId: "openai",
+      creditBalance: student.creditBalance,
+      contextLabel: "Context: Assignment + related academy materials",
+      currentThreadId: "assignment:connect-first-workflow",
+      blockingReason: null
+    }),
+    run: ({ request }) => ({
+      mode: request.mode,
+      variant: request.variant,
+      creditsDebited: resolveCoachCredits(request.mode, request.variant),
+      message: request.mode === "report" ? "Report generation complete." : "Here is your academy coaching result.",
+      threadPath: getCoachThreadPath(request.contextType, request.contextId),
+      reportArtifacts: request.mode === "report" ? buildCoachReportArtifacts(request.contextId, request.variant) : []
+    })
   };
 }
 
@@ -359,6 +439,7 @@ export function buildApp(services: AppServices = {}): FastifyInstance {
     (remoteDiscussionConfig
       ? createRemoteDiscussionState(remoteDiscussionConfig)
       : createPocDiscussionState());
+  const coachState = services.coachState ?? createPocCoachState();
   const auditSink = services.auditSink;
   const rateLimitBuckets = new Map<string, { count: number; resetAt: number }>();
 
@@ -528,6 +609,41 @@ export function buildApp(services: AppServices = {}): FastifyInstance {
   }));
 
   app.get(API_ROUTES.dashboardAnnouncements, { preHandler: requireAuth }, async () => POC_DASHBOARD_ANNOUNCEMENTS);
+
+  app.get(API_ROUTES.providerConnections, { preHandler: requireAuth }, async (request) => {
+    const status = await coachState.getStatus(request.authSession.student);
+    return {
+      providerOptions: status.providerOptions,
+      selectedProviderId: status.selectedProviderId
+    };
+  });
+
+  app.get(API_ROUTES.coachStatus, { preHandler: requireAuth }, async (request) =>
+    coachState.getStatus(request.authSession.student)
+  );
+
+  app.post<{ Body: CoachRunRequest }>(
+    API_ROUTES.coachRun,
+    { preHandler: requireAuth },
+    async (request, reply): Promise<CoachRunResponse | FastifyReply> => {
+      if (!isCoachRunRequest(request.body)) {
+        return reply.code(400).send({
+          error: "Invalid coach request"
+        });
+      }
+
+      if (!request.body.prompt.trim()) {
+        return reply.code(400).send({
+          error: "Prompt is required."
+        });
+      }
+
+      return coachState.run({
+        student: request.authSession.student,
+        request: request.body
+      });
+    }
+  );
 
   app.get(API_ROUTES.discussionStatus, { preHandler: requireAuth }, async (request) =>
     discussionState.getStatus(request.authSession.student.studentId)
@@ -731,6 +847,25 @@ function isAssignmentCoachRunRequest(value: unknown): value is AssignmentCoachRu
     Array.isArray(metadata.tags) &&
     metadata.tags.every((tag) => typeof tag === "string")
   );
+}
+
+function isCoachRunRequest(value: unknown): value is CoachRunRequest {
+  if (!isRecord(value)) {
+    return false;
+  }
+
+  const modeValid = value.mode === "coach" || value.mode === "research" || value.mode === "report";
+  const contextTypeValid = value.contextType === "course" || value.contextType === "assignment";
+  const promptValid = typeof value.prompt === "string";
+  const contextIdValid = typeof value.contextId === "string" && value.contextId.length > 0;
+  const variantValid =
+    value.variant === null ||
+    value.variant === "standard" ||
+    value.variant === "deep" ||
+    value.variant === "basic-pdf" ||
+    value.variant === "expanded-pdf-md";
+
+  return modeValid && contextTypeValid && promptValid && contextIdValid && variantValid;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

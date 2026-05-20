@@ -4,7 +4,7 @@ Last updated: `2026-05-17`
 
 ## Purpose
 
-This spec defines the first MVP design for the `Coach` area at the bottom of the `PBG Academy` dashboard.
+This spec defines the first MVP design for the `Coach` experience in the `PBG Academy` dashboard system.
 
 The goal is to give the student an academy-scoped coaching surface that:
 
@@ -13,6 +13,7 @@ The goal is to give the student an academy-scoped coaching surface that:
 - keeps the coaching experience product-like and clean
 - stores substantive outputs locally in the student's PBG vault
 - keeps remote database growth lean and controlled
+- lives in the `Assignments` workflow instead of congesting the main dashboard page
 
 ## Product Positioning
 
@@ -26,12 +27,43 @@ Reasoning:
 
 ## Placement
 
-The `Coach` area lives at the very bottom of the dashboard.
+The full `Coach` interface should not live on the main dashboard page.
 
-This makes it the action floor of the classroom:
+Instead:
 
-- upper dashboard = overview, assignments, metrics, navigation
-- bottom dashboard = coaching, research, and report generation
+- the main dashboard remains a command-center overview
+- the full `Coach` lives in the `Assignments` tab
+- the selected assignment reveals the coach as the main lower panel for that assignment
+
+This makes the coach contextual and prevents the main dashboard from becoming cluttered.
+
+## Main Dashboard Role
+
+The main dashboard should stay focused on:
+
+- announcements
+- current focus
+- metrics
+- assignment snapshot
+- discussion badge
+- workflow entry points
+
+The main page should not carry the full chat/coaching surface in the MVP.
+
+A small summary or launcher could be added later if useful, but that is out of scope for this slice.
+
+## Assignments Tab Role
+
+The `Assignments` tab becomes the assignment work surface.
+
+Recommended shape:
+
+- upper area: assignments list and/or assignment summary
+- lower area: full `Coach` panel for the selected assignment
+
+If no assignment is selected, the lower area should show a calm empty state such as:
+
+- `Select an assignment to open Coach`
 
 ## Scope
 
@@ -43,6 +75,7 @@ The MVP supports:
 - explicit PBG credit charging by mode
 - use of the student's connected provider account
 - academy-scoped context only
+- assignment-scoped coaching in the `Assignments` tab
 
 The MVP does not support:
 
@@ -50,6 +83,7 @@ The MVP does not support:
 - exposing backend execution steps
 - full multimodal attachments inside the panel
 - full server-side transcript warehousing
+- a full chat panel on the main dashboard page
 
 ## Provider Model
 
@@ -74,7 +108,7 @@ The system must clearly separate:
 1. student LLM provider costs
 2. PBG academy bot credit costs
 
-The dashboard should show both states in a quiet, compact way.
+The interface should show both states in a quiet, compact way.
 
 Examples:
 
@@ -161,8 +195,8 @@ The coach operates only on academy-scoped materials.
 
 Default context includes:
 
-- current course or assignment target
-- related approved academy files
+- selected assignment as the primary context
+- related approved academy files as secondary context
 - academy-designated folders/tags only
 
 Approved scope includes:
@@ -179,16 +213,17 @@ The panel should show a small context indicator, for example:
 - `Context: Assignment + related academy materials`
 - `Using 4 academy files`
 
-## Thread Model
+## Assignment Binding
 
-The system should use one coach thread per course or assignment context.
+The coach should use one thread per assignment context.
 
 Examples:
 
-- `course:<course-id>`
 - `assignment:<assignment-id>`
 
-This prevents one giant mixed thread and keeps the coaching tied to actual study context.
+This keeps the coaching tied to the actual work item and avoids one giant mixed thread.
+
+The selected assignment controls which coach thread is visible and active.
 
 ## Storage Model
 
@@ -200,7 +235,7 @@ Readable content stays local.
 
 Store in the vault:
 
-- one markdown note per coach thread
+- one markdown note per assignment coach thread
 - report artifacts
 - expanded report markdown companion file when applicable
 
@@ -235,7 +270,7 @@ This keeps the VPS side from becoming bloated.
 Behavior:
 
 - response appears inside the coach panel
-- response appends to the thread markdown note in `PBG/Coach Threads/`
+- response appends to the assignment thread markdown note in `PBG/Coach Threads/`
 
 ### Reports
 
@@ -264,7 +299,7 @@ The coach region should include a compact status card or status strip showing:
 - provider connection state
 - PBG credit balance
 - selected action cost
-- current context target
+- current assignment context target
 
 This should remain lightweight, not a financial dashboard.
 
@@ -283,31 +318,47 @@ Use inline blocking, not intrusive popups.
 - block action
 - explain that more academy credits are required for the selected action
 
-### Missing valid context target
+### Missing valid assignment context
 
 - block action
-- explain that a course or assignment context is required
+- explain that an assignment context is required
 
 Example messages:
 
 - `Connect a provider to use Coach`
 - `You need more PBG credits for this action`
-- `Open a course or assignment context to continue`
+- `Select an assignment to open Coach`
 
 ## UI Shape
 
-Recommended MVP structure inside the bottom dashboard area:
+Recommended MVP structure inside the `Assignments` tab:
+
+- assignments list or summary above
+- large lower `Coach` panel for the selected assignment
+
+Inside the coach panel:
 
 - `Coach` header
 - status/accounting strip
 - primary mode row
 - contextual secondary mode row when needed
-- transcript/result area
-- prompt box
+- large transcript/result area
+- compact prompt box
 - send / run action button
 - inline blocked state when not ready
 
-The interface should remain calm and dense enough for classroom use.
+## Layout Proportions
+
+The transcript/result area should be roughly four times larger than the current initial prototype size.
+
+The input box should stay compact.
+
+This produces the intended balance:
+
+- read area large
+- write area compact
+
+That is more appropriate for assignment work and research review.
 
 ## Data And Integration Boundaries
 
@@ -336,18 +387,22 @@ PBG credits are consumed by coach actions even though the underlying LLM provide
 - keep remote storage minimal
 - avoid turning the dashboard into a general-purpose chat app
 - preserve the clean billing boundary between provider usage and PBG credits
+- keep the full coach surface out of the main dashboard page
 
 ## Success Criteria
 
 The MVP is successful when a student can:
 
-1. connect a supported provider
-2. see their PBG credit balance
-3. choose a visible coach mode with explicit cost
-4. ask a coaching or research question using academy-scoped context
-5. receive a clean result without backend internals being exposed
-6. generate reports directly into the PBG vault
-7. review their thread history locally in `PBG/Coach Threads/`
+1. open the `Assignments` tab
+2. select an assignment
+3. see the lower `Coach` panel for that assignment
+4. connect a supported provider
+5. see their PBG credit balance
+6. choose a visible coach mode with explicit cost
+7. ask a coaching or research question using academy-scoped context
+8. receive a clean result without backend internals being exposed
+9. generate reports directly into the PBG vault
+10. review their thread history locally in `PBG/Coach Threads/`
 
 ## Related Docs
 

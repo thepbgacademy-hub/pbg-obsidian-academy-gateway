@@ -8,6 +8,10 @@ import {
   type AnnouncementViewState
 } from "./announcements.js";
 import { PbgGatewayApiClient } from "./apiClient.js";
+import { buildCoachPanelModel } from "./coachPanel.js";
+import { DEFAULT_COACH_MODE, DEFAULT_COACH_VARIANT, isReportKind, type CoachMode, type CoachPanelStatusPayload, type CoachRunRequest, type CoachVariant } from "./coachContracts.js";
+import { createCoachUiState } from "./coachState.js";
+import { appendCoachTurn } from "./coachStorage.js";
 import { getAnnouncementBannerState } from "./dashboardBanner.js";
 import { DASHBOARD_PALETTE_LABELS, DASHBOARD_PALETTE_CLASS_MAP, getDashboardPaletteClass } from "./dashboardPalette.js";
 import { DEFAULT_DASHBOARD_FLAGS } from "./dashboardFlags.js";
@@ -28,21 +32,32 @@ import {
 import { PBG_LOGO_DATA_URI } from "./logoData.js";
 import { PLUGIN_ID } from "./pluginConstants.js";
 import { normalizePluginSettings, type PbgAcademyGatewaySettings } from "./settings.js";
+import { TELEGRAM_ICON_DATA_URI } from "./telegramIconData.js";
 
 export const VIEW_TYPE_PBG_DASHBOARD = "pbg-academy-dashboard";
 const SYNC_COURSE_MANIFEST_COMMAND_ID = "pbg-academy-gateway:sync-pbg-course-manifest";
 const RUN_ASSIGNMENT_COACH_COMMAND_ID = "pbg-academy-gateway:run-assignment-coach-on-active-note";
 const ANNOUNCEMENT_POLL_INTERVAL_MS = 60_000;
 const DISCUSSION_POLL_INTERVAL_MS = 60_000;
+const COACH_POLL_INTERVAL_MS = 60_000;
 const ANNOUNCEMENT_BLINK_STEP_MS = 350;
 const ANNOUNCEMENT_ENTER_DURATION_MS = 5000;
+type DashboardSectionId = "dashboard" | "courses" | "assignments" | "workflows" | "results";
 
 export class PbgDashboardView extends ItemView {
   private localDashboardState: LocalPbgDashboardState = computeLocalPbgDashboardState([]);
   private announcementState: AnnouncementViewState = createAnnouncementViewState();
   private discussionStatus: DiscussionStatusState = createDiscussionStatusState();
+  private coachStatus: CoachPanelStatusPayload = createDefaultCoachStatus();
+  private selectedCoachMode: CoachMode = DEFAULT_COACH_MODE;
+  private selectedCoachVariant: CoachVariant = DEFAULT_COACH_VARIANT;
+  private activeSection: DashboardSectionId = "dashboard";
+  private selectedAssignmentPath: string | null = null;
+  private coachDraft = "";
+  private coachResultMessage: string | null = null;
   private announcementPollHandle?: number;
   private discussionPollHandle?: number;
+  private coachPollHandle?: number;
   private announcementBlinkHandle?: number;
   private announcementMotionHandle?: number;
   private isDisposed = false;
@@ -74,6 +89,13 @@ export class PbgDashboardView extends ItemView {
 
     this.announcementState = createAnnouncementViewState();
     this.discussionStatus = createDiscussionStatusState();
+    this.coachStatus = createDefaultCoachStatus();
+    this.selectedCoachMode = DEFAULT_COACH_MODE;
+    this.selectedCoachVariant = DEFAULT_COACH_VARIANT;
+    this.activeSection = "dashboard";
+    this.selectedAssignmentPath = this.localDashboardState.currentFocus?.assignmentPath ?? this.localDashboardState.assignments[0]?.path ?? null;
+    this.coachDraft = "";
+    this.coachResultMessage = null;
     this.isRailSettingsOpen = false;
 
     container.empty();
@@ -90,14 +112,21 @@ export class PbgDashboardView extends ItemView {
       return;
     }
 
+    await this.refreshCoachStatus();
+    if (this.isDisposed) {
+      return;
+    }
+
     this.startAnnouncementPolling();
     this.startDiscussionPolling();
+    this.startCoachPolling();
   }
 
   async onClose(): Promise<void> {
     this.isDisposed = true;
     this.stopAnnouncementPolling();
     this.stopDiscussionPolling();
+    this.stopCoachPolling();
     this.stopAnnouncementBlink();
     this.stopAnnouncementMotion();
   }
@@ -139,6 +168,13 @@ export class PbgDashboardView extends ItemView {
       this.getSettings(),
       this.isRailSettingsOpen,
       PBG_LOGO_DATA_URI,
+      this.coachStatus,
+      this.selectedCoachMode,
+      this.selectedCoachVariant,
+      this.coachDraft,
+      this.coachResultMessage,
+      this.activeSection,
+      this.selectedAssignmentPath,
       (commandId) => this.executeCommand(commandId),
       (item) => this.handleRailItemClick(item),
       () => {
@@ -149,7 +185,14 @@ export class PbgDashboardView extends ItemView {
         await this.updatePalette(palette);
         this.applyPaletteClass();
         this.renderDashboard();
-      }
+      },
+      (mode) => this.setCoachMode(mode),
+      (variant) => this.setCoachVariant(variant),
+      (value) => {
+        this.coachDraft = value;
+      },
+      async () => this.submitCoachPrompt(),
+      (path) => this.selectAssignment(path)
     );
   }
 
@@ -190,10 +233,32 @@ export class PbgDashboardView extends ItemView {
     }, DISCUSSION_POLL_INTERVAL_MS);
   }
 
+  private startCoachPolling(): void {
+    this.stopCoachPolling();
+    if (this.isDisposed) {
+      return;
+    }
+
+    if (!this.getGatewayClient()) {
+      return;
+    }
+
+    this.coachPollHandle = window.setInterval(() => {
+      void this.refreshCoachStatus();
+    }, COACH_POLL_INTERVAL_MS);
+  }
+
   private stopDiscussionPolling(): void {
     if (this.discussionPollHandle !== undefined) {
       window.clearInterval(this.discussionPollHandle);
       this.discussionPollHandle = undefined;
+    }
+  }
+
+  private stopCoachPolling(): void {
+    if (this.coachPollHandle !== undefined) {
+      window.clearInterval(this.coachPollHandle);
+      this.coachPollHandle = undefined;
     }
   }
 
@@ -260,6 +325,90 @@ export class PbgDashboardView extends ItemView {
     }
   }
 
+  private async refreshCoachStatus(): Promise<void> {
+    const client = this.getGatewayClient();
+    if (!client) {
+      this.coachStatus = createDefaultCoachStatus("missing-provider");
+      this.renderDashboard();
+      return;
+    }
+
+    try {
+      const payload = await client.getCoachStatus();
+      if (this.isDisposed) {
+        return;
+      }
+
+      this.coachStatus = payload;
+      this.renderDashboard();
+    } catch (error) {
+      if (isGatewaySessionError(error)) {
+        this.coachStatus = createDefaultCoachStatus("missing-provider");
+        this.renderDashboard();
+      }
+      console.warn("PBG coach status refresh failed", error);
+    }
+  }
+
+  private setCoachMode(mode: CoachMode): void {
+    this.selectedCoachMode = mode;
+    this.selectedCoachVariant = mode === "research" ? "standard" : mode === "report" ? "basic-pdf" : null;
+    this.renderDashboard();
+  }
+
+  private setCoachVariant(variant: CoachVariant): void {
+    this.selectedCoachVariant = variant;
+    this.renderDashboard();
+  }
+
+  private async submitCoachPrompt(): Promise<void> {
+    const client = this.getGatewayClient();
+    if (!client) {
+      return;
+    }
+
+    const contextId = getCoachContextId(this.selectedAssignmentPath ?? this.localDashboardState.currentFocus?.assignmentPath);
+    if (!contextId) {
+      this.coachStatus = {
+        ...this.coachStatus,
+        blockingReason: "missing-context"
+      };
+      this.renderDashboard();
+      return;
+    }
+
+    const request: CoachRunRequest = {
+      mode: this.selectedCoachMode,
+      variant: this.selectedCoachVariant,
+      prompt: this.coachDraft,
+      contextType: "assignment",
+      contextId
+    };
+
+    const result = await client.runCoach(request);
+    if (request.mode === "report") {
+      this.coachResultMessage = [
+        request.variant === "expanded-pdf-md" ? "Expanded report complete" : "Basic report complete",
+        ...result.reportArtifacts.map((artifact) => `Saved to ${artifact.path}`),
+        request.variant === "expanded-pdf-md" ? "MD companion created" : ""
+      ].filter(Boolean).join("\n");
+    } else {
+      await appendCoachTurn(
+        this.app.vault as unknown as {
+          getAbstractFileByPath(path: string): unknown;
+          create(path: string, body: string): Promise<unknown>;
+          append(file: unknown, body: string): Promise<void>;
+        },
+        result.threadPath,
+        ["## Student", request.prompt, "", "## Coach", result.message].join("\n")
+      );
+      this.coachResultMessage = result.message;
+    }
+
+    this.coachDraft = "";
+    this.renderDashboard();
+  }
+
   private runAnnouncementBlinkCycle(): void {
     this.stopAnnouncementBlink();
 
@@ -321,6 +470,15 @@ export class PbgDashboardView extends ItemView {
   }
 
   private handleRailItemClick(item: DashboardShellModel["leftRail"]["items"][number]): void {
+    if (item.id === "dashboard" || item.id === "courses" || item.id === "assignments" || item.id === "workflows" || item.id === "results") {
+      this.activeSection = item.id;
+      if (item.id === "assignments" && !this.selectedAssignmentPath) {
+        this.selectedAssignmentPath = this.localDashboardState.currentFocus?.assignmentPath ?? this.localDashboardState.assignments[0]?.path ?? null;
+      }
+      this.renderDashboard();
+      return;
+    }
+
     if (item.id !== "pbg-discussion") {
       return;
     }
@@ -358,6 +516,11 @@ export class PbgDashboardView extends ItemView {
     });
   }
 
+  private selectAssignment(path: string): void {
+    this.selectedAssignmentPath = path;
+    this.renderDashboard();
+  }
+
   private clearDiscussionStatusIfNeeded(): void {
     const clearedState = createDiscussionStatusState();
     if (
@@ -387,10 +550,22 @@ function renderDashboardShell(
   settings: PbgAcademyGatewaySettings,
   isRailSettingsOpen: boolean,
   logoSrc: string | null,
+  coachStatus: CoachPanelStatusPayload,
+  selectedCoachMode: CoachMode,
+  selectedCoachVariant: CoachVariant,
+  coachDraft: string,
+  coachResultMessage: string | null,
+  activeSection: DashboardSectionId,
+  selectedAssignmentPath: string | null,
   executeCommand: (commandId: string) => void,
   onRailItemClick: (item: DashboardShellModel["leftRail"]["items"][number]) => void,
   onToggleRailSettings: () => void,
-  onPaletteSelect: (palette: PbgAcademyGatewaySettings["dashboardPalette"]) => Promise<void>
+  onPaletteSelect: (palette: PbgAcademyGatewaySettings["dashboardPalette"]) => Promise<void>,
+  onCoachModeSelect: (mode: CoachMode) => void,
+  onCoachVariantSelect: (variant: CoachVariant) => void,
+  onCoachDraftInput: (value: string) => void,
+  onCoachSubmit: () => Promise<void>,
+  onAssignmentSelect: (path: string) => void
 ): void {
   const shellEl = container.createDiv({ cls: "pbg-shell" });
   const header = shellEl.createDiv({ cls: "pbg-shell__header" });
@@ -417,10 +592,30 @@ function renderDashboardShell(
   }
 
   const body = shellEl.createDiv({ cls: "pbg-shell__body" });
-  renderLeftRail(body, shell, settings, isRailSettingsOpen, onRailItemClick, onToggleRailSettings, onPaletteSelect);
+  renderLeftRail(body, shell, settings, isRailSettingsOpen, activeSection, onRailItemClick, onToggleRailSettings, onPaletteSelect);
 
   const main = body.createDiv({ cls: "pbg-shell__main" });
   const state = shell.main;
+  if (activeSection === "assignments") {
+    renderAssignmentsWorkspace(
+      main,
+      state,
+      selectedAssignmentPath,
+      coachStatus,
+      selectedCoachMode,
+      selectedCoachVariant,
+      coachDraft,
+      coachResultMessage,
+      onAssignmentSelect,
+      onCoachModeSelect,
+      onCoachVariantSelect,
+      onCoachDraftInput,
+      onCoachSubmit
+    );
+    renderHiddenHermesSections(main, shell);
+    return;
+  }
+
   const focusSection = main.createDiv({ cls: "pbg-dashboard__section pbg-dashboard__focus" });
   focusSection.createEl("h2", { text: "Current Focus" });
   if (state.currentFocus) {
@@ -492,6 +687,149 @@ function renderDashboardShell(
   renderHiddenHermesSections(main, shell);
 }
 
+function renderAssignmentsWorkspace(
+  container: HTMLElement,
+  state: LocalPbgDashboardState,
+  selectedAssignmentPath: string | null,
+  coachStatus: CoachPanelStatusPayload,
+  selectedCoachMode: CoachMode,
+  selectedCoachVariant: CoachVariant,
+  coachDraft: string,
+  coachResultMessage: string | null,
+  onAssignmentSelect: (path: string) => void,
+  onCoachModeSelect: (mode: CoachMode) => void,
+  onCoachVariantSelect: (variant: CoachVariant) => void,
+  onCoachDraftInput: (value: string) => void,
+  onCoachSubmit: () => Promise<void>
+): void {
+  const selectedAssignment = state.assignments.find((assignment) => assignment.path === selectedAssignmentPath) ?? state.assignments[0];
+  const section = container.createDiv({ cls: "pbg-dashboard__section" });
+  section.createEl("h2", { text: "Assignments" });
+
+  const list = section.createDiv({ cls: "pbg-assignments__list" });
+  for (const assignment of state.assignments) {
+    const button = list.createEl("button", {
+      cls: `pbg-assignments__item${assignment.path === selectedAssignment?.path ? " is-selected" : ""}`,
+      attr: { type: "button" }
+    });
+    button.createEl("strong", { text: assignment.title });
+    button.createEl("span", { text: `${assignment.completedTaskCount}/${assignment.taskCount} tasks • ${assignment.status}` });
+    button.addEventListener("click", () => onAssignmentSelect(assignment.path));
+  }
+
+  if (!selectedAssignment) {
+    container.createDiv({ cls: "pbg-dashboard__section pbg-coach__empty", text: "Select an assignment to open Coach" });
+    return;
+  }
+
+  const summary = container.createDiv({ cls: "pbg-dashboard__section" });
+  summary.createEl("h2", { text: selectedAssignment.title });
+  summary.createEl("p", { text: `${selectedAssignment.completedTaskCount} of ${selectedAssignment.taskCount} tasks complete` });
+  summary.createEl("small", { text: selectedAssignment.path });
+
+  renderCoachSection(
+    container,
+    {
+      ...coachStatus,
+      contextLabel: `Context: ${selectedAssignment.title} + related academy materials`
+    },
+    selectedCoachMode,
+    selectedCoachVariant,
+    coachDraft,
+    coachResultMessage,
+    onCoachModeSelect,
+    onCoachVariantSelect,
+    onCoachDraftInput,
+    onCoachSubmit
+  );
+}
+
+function renderCoachSection(
+  container: HTMLElement,
+  coachStatus: CoachPanelStatusPayload,
+  selectedCoachMode: CoachMode,
+  selectedCoachVariant: CoachVariant,
+  coachDraft: string,
+  coachResultMessage: string | null,
+  onCoachModeSelect: (mode: CoachMode) => void,
+  onCoachVariantSelect: (variant: CoachVariant) => void,
+  onCoachDraftInput: (value: string) => void,
+  onCoachSubmit: () => Promise<void>
+): void {
+  const section = container.createDiv({ cls: "pbg-dashboard__section pbg-coach" });
+  section.createEl("h2", { text: "Coach" });
+
+  const model = buildCoachPanelModel({
+    selectedMode: selectedCoachMode,
+    selectedVariant: selectedCoachVariant,
+    creditBalance: coachStatus.creditBalance,
+    blockingReason: coachStatus.blockingReason,
+    contextLabel: coachStatus.contextLabel
+  });
+  const uiState = createCoachUiState({
+    creditBalance: coachStatus.creditBalance,
+    blockingReason: coachStatus.blockingReason,
+    selectedMode: selectedCoachMode,
+    selectedVariant: selectedCoachVariant
+  });
+
+  const status = section.createDiv({ cls: "pbg-coach__status" });
+  status.createEl("span", { text: `Credits: ${model.creditBalance}` });
+  status.createEl("span", {
+    text: coachStatus.selectedProviderId ? `Provider: ${coachStatus.selectedProviderId}` : "Provider: not connected"
+  });
+  status.createEl("span", { text: model.contextLabel ?? "Context: unavailable" });
+  status.createEl("span", { text: `Action cost: ${uiState.cost}` });
+
+  const primary = section.createDiv({ cls: "pbg-coach__modes" });
+  for (const item of model.primaryModes) {
+    const button = primary.createEl("button", {
+      cls: `pbg-coach__modeButton${item.selected ? " is-selected" : ""}`,
+      text: item.label,
+      attr: { type: "button" }
+    });
+    button.addEventListener("click", () => onCoachModeSelect(item.id));
+  }
+
+  if (model.secondaryModes.length > 0) {
+    const secondary = section.createDiv({ cls: "pbg-coach__modes pbg-coach__modes--secondary" });
+    for (const item of model.secondaryModes) {
+      const button = secondary.createEl("button", {
+        cls: `pbg-coach__modeButton${item.selected ? " is-selected" : ""}`,
+        text: item.label,
+        attr: { type: "button" }
+      });
+      button.addEventListener("click", () => onCoachVariantSelect(item.id));
+    }
+  }
+
+  section.createDiv({ cls: "pbg-coach__transcript", text: coachResultMessage ?? "Coach responses and report completion notices will appear here." });
+
+  if (uiState.blockMessage) {
+    section.createDiv({ cls: "pbg-coach__block", text: uiState.blockMessage });
+  }
+
+  if (selectedCoachMode !== "report") {
+    const prompt = section.createEl("textarea", { cls: "pbg-coach__prompt" });
+    prompt.value = coachDraft;
+    prompt.placeholder = "Ask Coach a question about the current academy context...";
+    prompt.addEventListener("input", () => onCoachDraftInput(prompt.value));
+  }
+
+  const actionButton = section.createEl("button", {
+    cls: "mod-cta pbg-coach__submit",
+    text: selectedCoachMode === "report" ? "Run Report" : "Send to Coach",
+    attr: { type: "button" }
+  });
+  actionButton.disabled =
+    !uiState.canRun ||
+    (selectedCoachMode !== "report" && !coachDraft.trim()) ||
+    (selectedCoachMode === "report" && !isReportKind(selectedCoachVariant));
+  actionButton.addEventListener("click", () => {
+    void onCoachSubmit();
+  });
+}
+
 function renderAnnouncementBanner(container: HTMLElement, announcements?: AnnouncementViewState): void {
   const banner = container.createDiv({ cls: "pbg-shell__banner" });
   const bannerState = getAnnouncementBannerState(announcements);
@@ -543,6 +881,7 @@ function renderLeftRail(
   shell: DashboardShellModel,
   settings: PbgAcademyGatewaySettings,
   isRailSettingsOpen: boolean,
+  activeSection: DashboardSectionId,
   onRailItemClick: (item: DashboardShellModel["leftRail"]["items"][number]) => void,
   onToggleRailSettings: () => void,
   onPaletteSelect: (palette: PbgAcademyGatewaySettings["dashboardPalette"]) => Promise<void>
@@ -553,43 +892,30 @@ function renderLeftRail(
   const nav = rail.createEl("nav", { cls: "pbg-shell__railNav" });
   for (const item of shell.leftRail.items) {
     const classes = ["pbg-shell__railItem"];
-    if (item.id === "dashboard") {
+    if (item.id === activeSection) {
       classes.push("is-active");
     }
 
     if (item.href && item.external) {
       classes.push("is-link");
+      if (item.id === "pbg-discussion") {
+        classes.push("is-discussion");
+      }
       const button = nav.createEl("button", {
         cls: classes.join(" "),
         attr: { type: "button" }
       });
-      button.createEl("span", {
-        cls: "pbg-shell__railItemLabel",
-        text: item.label
-      });
-      if (item.badgeLabel) {
-        button.createEl("span", {
-          cls: "pbg-shell__railBadge",
-          text: item.badgeLabel
-        });
-      }
+      renderRailItemContent(button, item);
       button.addEventListener("click", () => onRailItemClick(item));
       continue;
     }
 
-    const railItem = nav.createEl("div", {
-      cls: classes.join(" ")
+    const railItem = nav.createEl("button", {
+      cls: classes.join(" "),
+      attr: { type: "button" }
     });
-    railItem.createEl("span", {
-      cls: "pbg-shell__railItemLabel",
-      text: item.label
-    });
-    if (item.badgeLabel) {
-      railItem.createEl("span", {
-        cls: "pbg-shell__railBadge",
-        text: item.badgeLabel
-      });
-    }
+    renderRailItemContent(railItem, item);
+    railItem.addEventListener("click", () => onRailItemClick(item));
   }
 
   const railFooter = rail.createDiv({ cls: "pbg-shell__railFooter" });
@@ -616,6 +942,40 @@ function renderLeftRail(
         void onPaletteSelect(palette as PbgAcademyGatewaySettings["dashboardPalette"]);
       });
     }
+  }
+}
+
+function renderRailItemContent(container: HTMLElement, item: DashboardShellModel["leftRail"]["items"][number]): void {
+  const label = container.createEl("span", {
+    cls: "pbg-shell__railItemLabel",
+    text: item.label
+  });
+
+  if (item.id !== "pbg-discussion") {
+    if (item.badgeLabel) {
+      container.createEl("span", {
+        cls: "pbg-shell__railBadge",
+        text: item.badgeLabel
+      });
+    }
+    return;
+  }
+
+  label.addClass("pbg-shell__railItemLabel--discussion");
+  const meta = container.createDiv({ cls: "pbg-shell__railDiscussionMeta" });
+  meta.createEl("img", {
+    cls: "pbg-shell__railDiscussionIcon",
+    attr: {
+      src: TELEGRAM_ICON_DATA_URI,
+      alt: "Telegram"
+    }
+  });
+
+  if (item.badgeLabel) {
+    meta.createEl("span", {
+      cls: "pbg-shell__railDiscussionCount",
+      text: item.badgeLabel
+    });
   }
 }
 
@@ -646,4 +1006,26 @@ function createMetric(container: HTMLElement, label: string, value: number): voi
 
 function isGatewaySessionError(error: unknown): boolean {
   return error instanceof Error && /\((401|403)\s/.test(error.message);
+}
+
+function createDefaultCoachStatus(
+  blockingReason: CoachPanelStatusPayload["blockingReason"] = null
+): CoachPanelStatusPayload {
+  return {
+    providerOptions: [],
+    selectedProviderId: null,
+    creditBalance: 0,
+    contextLabel: null,
+    currentThreadId: null,
+    blockingReason
+  };
+}
+
+function getCoachContextId(assignmentPath: string | undefined): string | null {
+  if (!assignmentPath) {
+    return null;
+  }
+
+  const match = assignmentPath.match(/([^/]+)\.md$/);
+  return match?.[1] ?? null;
 }

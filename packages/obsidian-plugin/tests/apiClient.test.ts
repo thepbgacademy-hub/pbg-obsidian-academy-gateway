@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { AssignmentCoachRunRequest } from "@pbg/shared/workflowContracts";
 import { PbgGatewayApiClient } from "../src/apiClient.js";
 
@@ -378,6 +378,61 @@ describe("PbgGatewayApiClient", () => {
         }
       }
     });
+  });
+
+  it("fetches coach panel status with bearer auth", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          creditBalance: 42,
+          providerOptions: [],
+          selectedProviderId: null,
+          contextLabel: null,
+          currentThreadId: null,
+          blockingReason: null
+        }),
+        { status: 200 }
+      )
+    );
+    const client = new PbgGatewayApiClient("http://localhost:8788", fetchMock, "poc-access-token");
+
+    await client.getCoachStatus();
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      new URL("http://localhost:8788/api/coach/status"),
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          authorization: "Bearer poc-access-token"
+        })
+      })
+    );
+  });
+
+  it("posts coach runs", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          mode: "coach",
+          variant: null,
+          creditsDebited: 2,
+          message: "ok",
+          threadPath: "PBG/Coach Threads/x.md",
+          reportArtifacts: []
+        }),
+        { status: 200 }
+      )
+    );
+    const client = new PbgGatewayApiClient("http://localhost:8788", fetchMock, "poc-access-token");
+
+    const result = await client.runCoach({
+      mode: "coach",
+      variant: null,
+      prompt: "hi",
+      contextType: "assignment",
+      contextId: "x"
+    });
+
+    expect(result.creditsDebited).toBe(2);
   });
 
   it("includes workflow response details for non-ok assignment coach errors", async () => {

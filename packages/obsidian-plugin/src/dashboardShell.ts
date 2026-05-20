@@ -33,7 +33,7 @@ export interface DashboardShellModel {
 }
 
 const DEFAULT_LEFT_RAIL_ITEMS: DashboardShellRailItem[] = [
-  { id: "dashboard", label: "Dashboard" },
+  { id: "dashboard", label: "Overview" },
   { id: "courses", label: "Courses" },
   { id: "assignments", label: "Assignments" },
   { id: "workflows", label: "Workflows" },

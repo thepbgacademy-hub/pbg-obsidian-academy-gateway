@@ -9,7 +9,7 @@ describe("dashboard shell model", () => {
     const shell = createDashboardShellModel(localState, DEFAULT_DASHBOARD_FLAGS);
 
     expect(shell.leftRail.items.map((item) => item.label)).toEqual([
-      "Dashboard",
+      "Overview",
       "Courses",
       "Assignments",
       "Workflows",

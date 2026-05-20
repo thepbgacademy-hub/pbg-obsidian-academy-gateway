@@ -33,7 +33,7 @@ describe("dashboard announcement route", () => {
       items: [
         {
           id: "academy-announcement-orientation",
-          label: "Academy Update",
+          label: "Academy Announcement",
           text: "Orientation week resources are now live in your PBG vault.",
           href: "https://github.com/thepbgacademy-hub/pbg-obsidian-academy-gateway",
           publishedAt: "2026-05-15T00:00:00.000Z",

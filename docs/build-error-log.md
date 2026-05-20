@@ -70,3 +70,7 @@
 - Telegram discussion integration debugging: the first real n8n-backed workflow returned `500` because it tried to use `fetch` inside an n8n Code node, which the n8n docs explicitly disallow for HTTP access. Fixed by moving Telegram `getUpdates` into an HTTP Request node, shifting the design to cached background polling every 30 minutes, and keeping a separate manual refresh webhook for clean verification without raising the production polling rate.
 
 - Hermes palette install note: scripts\install-plugin.ps1 threw a NullReferenceException inside ShouldProcess when run with -ConfirmInstall from this shell session. Worked around by copying manifest.json, styles.css, and dist/main.js directly into E:\Obsidian\PBG Plug in\.obsidian\plugins\pbg-academy-gateway.
+
+## 2026-05-17
+
+- Coach slice typecheck fix: `npm run typecheck` failed because new `vi.fn()` usage was added to `packages/obsidian-plugin/tests/apiClient.test.ts` without importing `vi` from Vitest. Fixed by extending the existing import to `import { describe, expect, it, vi } from "vitest";`.

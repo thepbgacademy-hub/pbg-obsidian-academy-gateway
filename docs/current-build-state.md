@@ -96,6 +96,17 @@ The following items have been tested successfully in live desktop Obsidian, not 
 - Current brand line:
   - `THE PRIDE PRIVATE BANKER'S GUILD ACADEMY   TELEGRAM: THEPRIDEPBG`
 
+### 9. Coach
+
+- The bottom-of-dashboard `Coach` area is now implemented.
+- It supports:
+  - `Coach 2`
+  - `Research` with `Standard 5` and `Deep 8`
+  - `Reports` with `Basic PDF 10` and `Expanded PDF + MD 15`
+- Coach and research results are intended to append into `PBG/Coach Threads/`.
+- Report outputs are routed into `PBG/Reports/`.
+- The panel keeps workflow internals hidden and uses product-facing completion states only.
+
 ## Current POC / Provisional Areas
 
 These parts are intentionally not yet final-production implementations.
